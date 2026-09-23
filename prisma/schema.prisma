@@ -7,8 +7,37 @@ datasource db {
 }
 
 model Role {
-  id       Int      @id @default(autoincrement())
-  name     String   @unique
-  createAt DateTime @default(dbgenerated("timezone('Asia/Bangkok', now())"))
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  createAt  DateTime @default(dbgenerated("timezone('Asia/Bangkok', now())"))
+  updatedAt DateTime @default(dbgenerated("timezone('Asia/Bangkok', now())"))
+
+  users User[]
+  emps  Emp[]
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String   @unique
+  password  String
+  lineId    String?
+  age       Int?
+  role      Role     @relation(fields: [roleId], references: [id])
+  roleId    Int
+  createdAt DateTime @default(dbgenerated("timezone('Asia/Bangkok', now())"))
+  updatedAt DateTime @default(dbgenerated("timezone('Asia/Bangkok', now())"))
+}
+
+model Emp {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String   @unique
+  password  String
+  lineId    String?
+  age       Int?
+  role      Role     @relation(fields: [roleId], references: [id])
+  roleId    Int
+  createdAt DateTime @default(dbgenerated("timezone('Asia/Bangkok', now())"))
   updatedAt DateTime @default(dbgenerated("timezone('Asia/Bangkok', now())"))
 }
