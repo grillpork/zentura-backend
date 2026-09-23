@@ -3,6 +3,8 @@ const express = require('express')
 const cors = require('cors')
 const { helloRoute } = require("./routes/hello.js")
 const authRoutes = require("./routes/auth.js")
+const locationRoutes = require("./routes/location.js")
+const locationTypeRoutes = require("./routes/location_type.js")
 const { prisma } = require("./config/db.js")
 const server = express()
 
@@ -13,6 +15,8 @@ server.use(express.json()) // for parsing application/json
 // Routes
 server.use("/", helloRoute)
 server.use("/api/auth", authRoutes)
+server.use("/api/location", locationRoutes)
+server.use("/api/location-type", locationTypeRoutes)
 
 // server.get('/role', async (req, res) => {
 //     return res.json({ data: await prisma.role.findMany({ select: { name: true } }) })
