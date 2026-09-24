@@ -12,24 +12,9 @@ model Role {
   createAt  DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
   updatedAt DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
   access    String?  @default("General access")
-  Emp       Emp[]
-  User      User[]
-}
 
-model Emp {
-  id            Int      @id @default(autoincrement())
-  name          String
-  email         String   @unique
-  password      String   @default("123456")
-  lineId        String?
-  age           Int?
-  roleId        Int
-  createdAt     DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
-  updatedAt     DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
-  phone         String?
-  status        String?  @default("ใช้งาน")
-  isPasswordSet Int?     @default(0)
-  Role          Role     @relation(fields: [roleId], references: [id])
+  users     User[]
+  Emp       Emp[]
 }
 
 model User {
@@ -40,24 +25,44 @@ model User {
   lineId    String?
   age       Int?
   roleId    Int
+  role      Role     @relation(fields: [roleId], references: [id])
   createdAt DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
   updatedAt DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
-  Role      Role     @relation(fields: [roleId], references: [id])
 }
 
-model location {
-  id            Int           @id @default(autoincrement())
+model Emp {
+  id            Int      @id @default(autoincrement())
   name          String
-  createAt      DateTime      @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
-  updatedAt     DateTime      @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
-  lct_type_id   Int           @default(1)
-  location_type location_type @relation(fields: [lct_type_id], references: [id], onDelete: Cascade)
+  email         String   @unique
+  password      String   @default("123456")
+  lineId        String?
+  age           Int?
+  roleId        Int
+  phone         String?
+  status        String?  @default("ใช้งาน")
+  isPasswordSet Int?     @default(0)
+  Role          Role     @relation(fields: [roleId], references: [id])
+  createdAt     DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  updatedAt     DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
 }
 
-model location_type {
+model LocationType {
   id        Int        @id @default(autoincrement())
   name      String     @unique
   createAt  DateTime   @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
   updatedAt DateTime   @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
-  location  location[]
+  locations Location[]
+
+  @@map("location_type")
+}
+
+model Location {
+  id          Int          @id @default(autoincrement())
+  name        String
+  createAt    DateTime     @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  updatedAt   DateTime     @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  lct_type_id Int          @default(1)
+  lct_type    LocationType @relation(fields: [lct_type_id], references: [id], onUpdate: Cascade, onDelete: Cascade)
+
+  @@map("location")
 }
