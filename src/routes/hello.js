@@ -3,7 +3,7 @@ const { Router } = require('express');
 
 const helloRoute = Router();
 
-helloRoute.get('/', (req, res) => {
+helloRoute.get('/hello', (req, res) => {
     res.send("Hello World")
 })
 
