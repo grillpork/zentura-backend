@@ -34,10 +34,23 @@ const checkRole = (...allowedRoles) => {
             let userRoleId = req.user.roleId;
 
             if (!userRoleName && !userRoleId) {
-                const user = await prisma.user.findUnique({
+                let user = await prisma.user.findUnique({
                     where: { id: req.user.id },
                     include: { role: true }
                 });
+
+                if (!user) {
+                    const emp = await prisma.emp.findUnique({
+                        where: { id: req.user.id },
+                        include: { Role: true }
+                    });
+                    if (emp && emp.Role) {
+                        user = {
+                            ...emp,
+                            role: emp.Role
+                        };
+                    }
+                }
 
                 if (!user || !user.role) {
                     return res.status(403).json({ message: 'ไม่พบข้อมูลสิทธิ์ของผู้ใช้งาน' });

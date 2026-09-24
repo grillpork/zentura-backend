@@ -391,8 +391,8 @@ employeeRoute.get("/role", async (req, res) => {
   }
 });
 
-// POST /auth/login (Employee login)
-employeeRoute.post("/auth/login", async (req, res) => {
+// POST /auth/login & /employee/login (Employee login)
+const handleEmployeeLogin = async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {
@@ -446,10 +446,12 @@ employeeRoute.post("/auth/login", async (req, res) => {
     console.error("POST /auth/login error:", error);
     return res.status(500).json({ success: false, message: "เกิดข้อผิดพลาดในการเข้าสู่ระบบ", error: error.message });
   }
-});
+};
+employeeRoute.post("/auth/login", handleEmployeeLogin);
+employeeRoute.post("/employee/login", handleEmployeeLogin);
 
 // POST /auth/set-password (First-time password change or reset)
-employeeRoute.post("/auth/set-password", async (req, res) => {
+const handleSetPassword = async (req, res) => {
   try {
     const { employeeId, email, currentPassword, newPassword } = req.body;
 
@@ -509,6 +511,8 @@ employeeRoute.post("/auth/set-password", async (req, res) => {
     console.error("POST /auth/set-password error:", error);
     return res.status(500).json({ success: false, message: "เกิดข้อผิดพลาดในการตั้งรหัสผ่านใหม่", error: error.message });
   }
-});
+};
+employeeRoute.post("/auth/set-password", handleSetPassword);
+employeeRoute.post("/employee/set-password", handleSetPassword);
 
 module.exports = { employeeRoute };
