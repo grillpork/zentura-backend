@@ -6,6 +6,8 @@ const { helloRoute } = require("./routes/hello.js");
 const authRoutes = require("./routes/auth.js");
 const locationRoutes = require("./routes/location.js");
 const locationTypeRoutes = require("./routes/location_type.js");
+const partnerTypeRoutes = require("./routes/partner_type.js");
+const partnerRoutes = require("./routes/partner.js");
 const { employeeRoute } = require("./routes/employee.js");
 const { positionRoute } = require("./routes/position.js");
 const { prisma } = require("./config/db.js");
@@ -30,6 +32,11 @@ server.use("/api", employeeRoute);
 server.use("/", employeeRoute);
 server.use("/api", positionRoute);
 server.use("/", positionRoute);
+server.use("/api/partner-type", partnerTypeRoutes);
+server.use("/partner-type", partnerTypeRoutes);
+server.use("/api/partner", partnerRoutes);
+server.use("/partner", partnerRoutes);
+
 
 server.get("/role", async (req, res) => {
   try {
