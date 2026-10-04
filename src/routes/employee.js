@@ -7,8 +7,7 @@ const employeeRoute = Router();
 employeeRoute.get("/employee", async (req, res) => {
   try {
     const list = await prisma.emp.findMany({
-      include: {
-        Role: {
+      include: { Role: {
           select: { id: true, name: true },
         },
       },
@@ -22,7 +21,7 @@ employeeRoute.get("/employee", async (req, res) => {
       phone: emp.phone || "",
       lineId: emp.lineId || "",
       age: emp.age || null,
-      roleId: emp.roleId,
+      roleId: emp.RoleId,
       position: emp.Role ? emp.Role.name : "ไม่ระบุ",
       status: emp.status || "ใช้งาน",
       isPasswordSet: emp.isPasswordSet ?? 0,
@@ -47,8 +46,7 @@ employeeRoute.get("/employee/:id", async (req, res) => {
 
     const emp = await prisma.emp.findUnique({
       where: { id },
-      include: {
-        Role: {
+      include: { Role: {
           select: { id: true, name: true },
         },
       },
@@ -67,7 +65,7 @@ employeeRoute.get("/employee/:id", async (req, res) => {
         phone: emp.phone || "",
         lineId: emp.lineId || "",
         age: emp.age || null,
-        roleId: emp.roleId,
+        roleId: emp.RoleId,
         position: emp.Role ? emp.Role.name : "ไม่ระบุ",
         status: emp.status || "ใช้งาน",
         isPasswordSet: emp.isPasswordSet ?? 0,
@@ -154,8 +152,7 @@ employeeRoute.post("/employee", async (req, res) => {
         age: age ? parseInt(age, 10) : null,
         roleId: assignedRoleId,
       },
-      include: {
-        Role: {
+      include: { Role: {
           select: { id: true, name: true },
         },
       },
@@ -239,8 +236,7 @@ employeeRoute.put("/employee/:id", async (req, res) => {
         roleId: assignedRoleId,
         updatedAt: new Date(Date.now() + 7 * 3600 * 1000),
       },
-      include: {
-        Role: {
+      include: { Role: {
           select: { id: true, name: true },
         },
       },
@@ -406,8 +402,7 @@ const handleEmployeeLogin = async (req, res) => {
           mode: "insensitive",
         },
       },
-      include: {
-        Role: {
+      include: { Role: {
           select: { id: true, name: true },
         },
       },
@@ -430,7 +425,7 @@ const handleEmployeeLogin = async (req, res) => {
       name: emp.name,
       email: emp.email,
       phone: emp.phone || "",
-      roleId: emp.roleId,
+      roleId: emp.RoleId,
       position: emp.Role ? emp.Role.name : "ไม่ระบุ",
       status: emp.status || "ใช้งาน",
       isPasswordSet: emp.isPasswordSet ?? 0,
@@ -465,8 +460,7 @@ const handleSetPassword = async (req, res) => {
 
     const emp = await prisma.emp.findFirst({
       where: whereClause,
-      include: {
-        Role: { select: { id: true, name: true } },
+      include: { Role: { select: { id: true, name: true } },
       },
     });
 
@@ -485,8 +479,7 @@ const handleSetPassword = async (req, res) => {
         isPasswordSet: 1,
         updatedAt: new Date(Date.now() + 7 * 3600 * 1000),
       },
-      include: {
-        Role: { select: { id: true, name: true } },
+      include: { Role: { select: { id: true, name: true } },
       },
     });
 

@@ -112,8 +112,7 @@ router.post('/login', async (req, res) => {
                     mode: 'insensitive',
                 },
             },
-            include: {
-                Role: {
+            include: { Role: {
                     select: { id: true, name: true },
                 },
             },
@@ -141,7 +140,7 @@ router.post('/login', async (req, res) => {
                 { 
                     id: emp.id, 
                     email: emp.email, 
-                    roleId: emp.roleId,
+                    roleId: emp.RoleId,
                     role: emp.Role?.name || 'Admin',
                     isEmployee: true
                 },
@@ -158,7 +157,7 @@ router.post('/login', async (req, res) => {
                     email: emp.email,
                     name: emp.name,
                     phone: emp.phone || '',
-                    roleId: emp.roleId,
+                    roleId: emp.RoleId,
                     role: emp.Role?.name || 'Admin',
                     position: emp.Role?.name || 'Admin',
                     status: emp.status || 'ใช้งาน',
@@ -189,8 +188,7 @@ router.post('/set-password', async (req, res) => {
 
         const emp = await prisma.emp.findFirst({
             where: whereClause,
-            include: {
-                Role: { select: { id: true, name: true } },
+            include: { Role: { select: { id: true, name: true } },
             },
         });
 
@@ -208,8 +206,7 @@ router.post('/set-password', async (req, res) => {
                 password: newPassword,
                 isPasswordSet: 1,
             },
-            include: {
-                Role: { select: { id: true, name: true } },
+            include: { Role: { select: { id: true, name: true } },
             },
         });
 
@@ -266,8 +263,7 @@ router.get('/me', authMiddleware, async (req, res) => {
 
         const emp = await prisma.emp.findUnique({
             where: { id: req.user.id },
-            include: {
-                Role: { select: { name: true } }
+            include: { Role: { select: { name: true } }
             }
         });
 
@@ -278,7 +274,7 @@ router.get('/me', authMiddleware, async (req, res) => {
                     email: emp.email,
                     name: emp.name,
                     phone: emp.phone || '',
-                    roleId: emp.roleId,
+                    roleId: emp.RoleId,
                     role: emp.Role,
                     position: emp.Role?.name || 'Admin',
                     status: emp.status || 'ใช้งาน',

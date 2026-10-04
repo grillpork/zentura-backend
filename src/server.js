@@ -8,6 +8,7 @@ const locationRoutes = require("./routes/location.js");
 const locationTypeRoutes = require("./routes/location_type.js");
 const partnerTypeRoutes = require("./routes/partner_type.js");
 const partnerRoutes = require("./routes/partner.js");
+const packageRoutes = require("./routes/package.js");
 const { employeeRoute } = require("./routes/employee.js");
 const { positionRoute } = require("./routes/position.js");
 const { prisma } = require("./config/db.js");
@@ -20,10 +21,18 @@ server.use(cors());
 server.use(express.json());
 server.use(express.urlencoded({ extended: true }));
 
+const path = require("path");
+const uploadRoutes = require("./routes/upload.js");
+
+// Serve uploaded files statically
+server.use("/uploads", express.static(path.join(__dirname, "../uploads")));
+
 // Routes
 server.use("/", helloRoute);
 server.use("/api/auth", authRoutes);
 server.use("/auth", authRoutes);
+server.use("/api/upload", uploadRoutes);
+server.use("/upload", uploadRoutes);
 server.use("/api/location", locationRoutes);
 server.use("/location", locationRoutes);
 server.use("/api/location-type", locationTypeRoutes);
@@ -36,6 +45,8 @@ server.use("/api/partner-type", partnerTypeRoutes);
 server.use("/partner-type", partnerTypeRoutes);
 server.use("/api/partner", partnerRoutes);
 server.use("/partner", partnerRoutes);
+server.use("/api/packages", packageRoutes);
+server.use("/packages", packageRoutes);
 
 
 server.get("/role", async (req, res) => {

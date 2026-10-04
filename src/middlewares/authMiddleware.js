@@ -36,7 +36,7 @@ const checkRole = (...allowedRoles) => {
             if (!userRoleName && !userRoleId) {
                 let user = await prisma.user.findUnique({
                     where: { id: req.user.id },
-                    include: { role: true }
+                    include: { Role: true }
                 });
 
                 if (!user) {
