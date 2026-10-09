@@ -210,7 +210,7 @@ BookingRouter.get("/", async (req, res) => {
         const { status, search } = req.query;
 
         const whereCondition = {};
-        if (status) {
+        if (status && status !== "ALL") {
             whereCondition.status = status;
         }
         if (search && search.trim()) {
@@ -218,6 +218,7 @@ BookingRouter.get("/", async (req, res) => {
                 { booking_code: { contains: search.trim(), mode: "insensitive" } },
                 { contact_name: { contains: search.trim(), mode: "insensitive" } },
                 { contact_phone: { contains: search.trim(), mode: "insensitive" } },
+                { contact_email: { contains: search.trim(), mode: "insensitive" } },
             ];
         }
 
@@ -345,6 +346,37 @@ BookingRouter.get("/:code", async (req, res) => {
             message: "เกิดข้อผิดพลาดจากเซิร์ฟเวอร์", 
             error: error.message 
         });
+    }
+});
+
+// -------------------------------------------------------------
+// PATCH /:id/status -> แอดมินปรับสถานะการจอง (CONFIRMED, CANCELLED ฯลฯ)
+// -------------------------------------------------------------
+BookingRouter.patch("/:id/status", async (req, res) => {
+    try {
+        const id = parseInt(req.params.id);
+        const { status } = req.body;
+
+        if (isNaN(id)) {
+            return res.status(400).json({ message: "รหัส ID ไม่ถูกต้อง" });
+        }
+        if (!status) {
+            return res.status(400).json({ message: "กรุณาระบุสถานะที่ต้องการเปลี่ยน" });
+        }
+
+        const updatedBooking = await prisma.booking.update({
+            where: { id },
+            data: { status }
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: "อัปเดตสถานะการจองสำเร็จ",
+            data: updatedBooking
+        });
+    } catch (error) {
+        console.error("UPDATE BOOKING STATUS ERROR:", error);
+        return res.status(500).json({ message: "เกิดข้อผิดพลาดในการอัปเดตสถานะ", error: error.message });
     }
 });
 
