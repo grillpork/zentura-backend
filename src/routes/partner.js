@@ -3,6 +3,7 @@ const express = require("express");
 
 const PartnerRouter = express.Router();
 
+
 PartnerRouter.get('/', async(req, res) => {
     try{
         const data = await prisma.partner.findMany({
@@ -73,14 +74,16 @@ PartnerRouter.post('/', async(req, res) => {
             return res.status(400).json({ message: "อีเมลนี้ถูกใช้งานแล้ว" });
         }
         // 3. บันทึกข้อมูล
+        const dataUpdate = {
+            name: name.trim(),
+            phone: phone.trim(),
+            email: email.trim(),
+            address: address ? address.trim() : null,
+            pt_type_id: parsedTypeId
+        };
+
         const data = await prisma.partner.create({
-            data: {
-                name: name.trim(),
-                phone: phone.trim(),
-                email: email.trim(),
-                address: address ? address.trim() : null, // ปลอดภัยแม้ไม่ส่ง address มา
-                pt_type_id: parsedTypeId
-            },
+            data: dataUpdate,
             include: { pt_type: true }
         });
         return res.status(201).json(data);
@@ -135,15 +138,17 @@ PartnerRouter.put('/:id', async (req, res) => {
             return res.status(400).json({ message: "อีเมลนี้ถูกใช้งานแล้ว" });
         }
         // 3. อัปเดตข้อมูล
+        const dataUpdate = {
+            name: name.trim(),
+            phone: phone.trim(),
+            email: email.trim(),
+            address: address ? address.trim() : null,
+            pt_type_id: parsedTypeId
+        };
+
         const data = await prisma.partner.update({
             where: { id },
-            data: {
-                name: name.trim(),
-                phone: phone.trim(),
-                email: email.trim(),
-                address: address ? address.trim() : null,
-                pt_type_id: parsedTypeId
-            },
+            data: dataUpdate,
             include: { pt_type: true }
         });
         return res.status(200).json(data)

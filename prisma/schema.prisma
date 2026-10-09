@@ -28,6 +28,8 @@ model User {
   role      Role     @relation(fields: [roleId], references: [id])
   createdAt DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
   updatedAt DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+
+  bookings  Booking[]
 }
 
 model Emp {
@@ -119,6 +121,7 @@ model Package {
   partners    PackagePartner[]
   addons      AddonPackage[]
   images      PackageImage[]
+  bookings    Booking[]
 
   @@map("packages")
 }
@@ -129,16 +132,19 @@ model AddonPackage {
   price       Float    @default(0)
   max_limit   Int      @default(1)
   status      Int      @default(1) // 1 = ซื้อได้, 0 = ซื้อไม่ได้
+
+  booking_addons    BookingAddon[]
   
   package_id  Int
   package     Package  @relation(fields: [package_id], references: [id], onDelete: Cascade)
   
-  booking_id  Int?     // รองรับฟิลด์ตาม dataset สำหรับผูกกับการจอง
 
   createdAt   DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
   updatedAt   DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
 
   @@map("addon_package")
+
+  
 }
 
 model PackagePartner {
@@ -218,4 +224,98 @@ model PackageImage {
   updatedAt  DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
 
   @@map("package_images")
+}
+
+model Booking {
+  id              Int            @id @default(autoincrement())
+  booking_code    String         @unique // รหัสการจอง เช่น ZT-202610-001 (สำหรับลูกค้าค้นหา)
+  
+  // เชื่อมกับแพ็กเกจ
+  package_id      Int
+  package         Package        @relation(fields: [package_id], references: [id], onDelete: Restrict)
+  
+  // เชื่อมกับผู้ใช้ (ถ้าล็อกอิน) หากลูกค้าทั่วไปไม่ได้ล็อกอินจะเป็น null
+  user_id         Int?
+  user            User?          @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  
+  // รายละเอียดการเดินทาง
+  travel_date     DateTime       // วันที่ออกเดินทาง
+  adult_count     Int            @default(1) // จำนวนผู้ใหญ่
+  child_count     Int            @default(0) // จำนวนเด็ก (ถ้ามี)
+  
+  // ข้อมูลผู้ติดต่อหลัก
+  contact_name    String
+  contact_phone   String
+  contact_email   String
+  contact_line_id String?
+  special_request String?        // คำขอพิเศษ เช่น แพ้อาหาร, วีลแชร์
+  
+  // ข้อมูลราคา (บันทึกราคา ณ วันที่จอง เพื่อป้องกันราคาแพ็กเกจเปลี่ยนในอนาคต)
+  package_price   Float          // ราคาต่อท่าน ณ เวลาที่จอง
+  addon_total     Float          @default(0)
+  total_price     Float          // ยอดสุทธิ
+  
+  // สถานะการจอง: "PENDING_PAYMENT", "AWAITING_VERIFICATION", "CONFIRMED", "CANCELLED"
+  status          String         @default("PENDING_PAYMENT")
+  
+  // ความสัมพันธ์กับตารางอื่นๆ
+  travelers       BookingTraveler[]
+  booking_addons  BookingAddon[]
+  payments        Payment[]
+
+  createdAt       DateTime       @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  updatedAt       DateTime       @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+
+  @@map("bookings")
+}
+
+// รายชื่อผู้ร่วมเดินทางแต่ละท่าน (จำเป็นสำหรับทำประกันภัย / รายชื่อตั๋ว)
+model BookingTraveler {
+  id                 Int      @id @default(autoincrement())
+  booking_id         Int
+  booking            Booking  @relation(fields: [booking_id], references: [id], onDelete: Cascade)
+  
+  title              String?  // นาย, นาง, นางสาว, เด็กชาย, เด็กหญิง
+  full_name          String
+  id_card_or_passport String? // เลขบัตร ปชช. หรือ Passport
+  phone              String?
+
+  @@map("booking_travelers")
+}
+
+// Addon ที่ลูกค้าเลือกจองใน Order นั้นๆ
+model BookingAddon {
+  id          Int          @id @default(autoincrement())
+  booking_id  Int
+  booking     Booking      @relation(fields: [booking_id], references: [id], onDelete: Cascade)
+  
+  addon_id    Int
+  addon       AddonPackage @relation(fields: [addon_id], references: [id], onDelete: Restrict)
+  
+  addon_name  String       // เก็บชื่อไว้เพื่ออ้างอิงย้อนหลัง
+  price       Float        // ราคาต่อหน่วย ณ วันที่จอง
+  quantity    Int          @default(1)
+
+  @@map("booking_addons")
+}
+
+// ประวัติการชำระเงินและแนบสลิป
+model Payment {
+  id             Int       @id @default(autoincrement())
+  booking_id     Int
+  booking        Booking   @relation(fields: [booking_id], references: [id], onDelete: Cascade)
+  
+  amount         Float     // ยอดเงินที่แจ้งโอน
+  payment_method String    @default("TRANSFER") // TRANSFER (โอนเงิน), PROMPTPAY
+  slip_url       String?   // URL รูปสลิปจากระบบ Upload
+  paid_at        DateTime? // วัน-เวลาที่โอน
+  status         String    @default("PENDING") // PENDING, APPROVED, REJECTED
+  
+  reject_reason  String?   // กรณีแอดมินปฏิเสธสลิป
+  verified_by    Int?      // รหัสเจ้าหน้าที่ (Emp) ที่ตรวจสอบ
+  verified_at    DateTime?
+
+  createdAt      DateTime  @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+
+  @@map("payments")
 }

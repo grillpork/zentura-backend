@@ -9,6 +9,7 @@ const locationTypeRoutes = require("./routes/location_type.js");
 const partnerTypeRoutes = require("./routes/partner_type.js");
 const partnerRoutes = require("./routes/partner.js");
 const packageRoutes = require("./routes/package.js");
+const BookingRouter = require("./routes/booking.js");
 const { employeeRoute } = require("./routes/employee.js");
 const { positionRoute } = require("./routes/position.js");
 const { prisma } = require("./config/db.js");
@@ -47,6 +48,8 @@ server.use("/api/partner", partnerRoutes);
 server.use("/partner", partnerRoutes);
 server.use("/api/packages", packageRoutes);
 server.use("/packages", packageRoutes);
+server.use("/api/booking", BookingRouter);
+server.use("/booking", BookingRouter);
 
 
 server.get("/role", async (req, res) => {
