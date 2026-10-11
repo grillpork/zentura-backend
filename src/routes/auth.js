@@ -291,4 +291,29 @@ router.get('/me', authMiddleware, async (req, res) => {
     }
 });
 
+router.get('/users/search', async (req, res) => {
+    try {
+        const query = (req.query.q || req.query.query || '').trim();
+        const users = await prisma.user.findMany({
+            where: query ? {
+                OR: [
+                    { name: { contains: query, mode: 'insensitive' } },
+                    { email: { contains: query, mode: 'insensitive' } }
+                ]
+            } : {},
+            select: {
+                id: true,
+                name: true,
+                email: true,
+            },
+            take: 20
+        });
+        return res.status(200).json({ success: true, users, data: users });
+    } catch (error) {
+        console.error('Search users error:', error);
+        return res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาดในการค้นหาผู้ใช้งาน', error: error.message });
+    }
+});
+
 module.exports = router;
+

@@ -1,0 +1,42 @@
+model Role {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  createAt  DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  updatedAt DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  access    String?  @default("General access")
+
+  users User[]
+  Emp   Emp[]
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String   @unique
+  password  String
+  lineId    String?
+  age       Int?
+  roleId    Int
+  role      Role     @relation(fields: [roleId], references: [id])
+  createdAt DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  updatedAt DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+
+  bookings       Booking[]
+  bookingCollaps BookingCollaps[]
+}
+
+model Emp {
+  id            Int      @id @default(autoincrement())
+  name          String
+  email         String   @unique
+  password      String   @default("123456")
+  lineId        String?
+  age           Int?
+  roleId        Int
+  phone         String?
+  status        String?  @default("ใช้งาน")
+  isPasswordSet Int?     @default(0)
+  Role          Role     @relation(fields: [roleId], references: [id])
+  createdAt     DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  updatedAt     DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+}

@@ -88,6 +88,18 @@ router.get("/:id", async (req, res) => {
             location: true,
           },
         },
+        bookingCollaps: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+          orderBy: { id: "asc" },
+        },
       },
     });
     if (!data) return res.status(404).json({ message: "Package not found" });

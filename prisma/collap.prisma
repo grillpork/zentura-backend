@@ -1,0 +1,23 @@
+// ผู้ร่วมทริป / การร่วมจอง (Collaborators)
+model BookingCollaps {
+  id Int @id @default(autoincrement())
+
+  user_id Int
+  user    User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  package_id Int
+  package    Package @relation(fields: [package_id], references: [id], onDelete: Cascade)
+
+  booking_id Int?
+  booking    Booking? @relation(fields: [booking_id], references: [id], onDelete: SetNull)
+
+  role   String? @default("COLLABORATOR") // OWNER, COLLABORATOR
+  status String? @default("ACCEPTED") // INVITED, ACCEPTED, DECLINED
+
+  createdAt DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  updatedAt DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+
+  @@index([user_id, package_id])
+  @@index([booking_id])
+  @@map("booking_collaps")
+}

@@ -102,6 +102,12 @@ BookingRouter.post("/", async (req, res) => {
             userId = parseInt(req.body.user_id);
         }
 
+        const collabIds = Array.isArray(req.body.collab_ids)
+            ? req.body.collab_ids.map(id => parseInt(id)).filter(Boolean)
+            : Array.isArray(req.body.collaborators)
+            ? req.body.collaborators.map(c => parseInt(c.id || c)).filter(Boolean)
+            : [];
+
         //บันทึกลง db
         const newBooking = await prisma.booking.create({
             data: {
@@ -133,10 +139,28 @@ BookingRouter.post("/", async (req, res) => {
                 booking_addons: {
                     create: addonInsertData,
                 },
+                // บันทึกผู้ร่วมทริป Collab (ถ้ามี)
+                ...(collabIds.length > 0 ? {
+                    bookingCollaps: {
+                        create: collabIds.map(cid => ({
+                            package_id: pkg.id,
+                            user_id: cid,
+                            role: "COLLABORATOR",
+                            status: "ACCEPTED",
+                        })),
+                    },
+                } : {}),
             },
             include: {
                 travelers: true,
                 booking_addons: true,
+                bookingCollaps: {
+                    include: {
+                        user: {
+                            select: { id: true, name: true, email: true },
+                        },
+                    },
+                },
                 package: {
                     select: { id: true, name: true, image: true },
                 },
