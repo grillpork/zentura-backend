@@ -3,6 +3,12 @@ const express = require("express");
 
 const router = express.Router();
 
+const parseDate = (d) => {
+  if (!d) return null;
+  const parsed = new Date(d);
+  return isNaN(parsed.getTime()) ? null : parsed;
+};
+
 // Get all packages
 router.get("/", async (req, res) => {
   try {
@@ -112,7 +118,7 @@ router.get("/:id", async (req, res) => {
 // Create new package
 router.post("/", async (req, res) => {
   try {
-    const { name, description, price, location_id, status, image, images, days, partner_id, partner_ids, addons } = req.body;
+    const { name, description, price, location_id, status, image, images, days, partner_id, partner_ids, addons, booking_start_date, booking_end_date } = req.body;
 
     const primaryPartnerId = partner_id ? parseInt(partner_id) : (Array.isArray(partner_ids) && partner_ids.length > 0 ? parseInt(partner_ids[0]) : null);
 
@@ -136,6 +142,8 @@ router.post("/", async (req, res) => {
           location_id: parseInt(location_id) || null,
           partner_id: primaryPartnerId || null,
           status: status || "Draft",
+          booking_start_date: parseDate(booking_start_date),
+          booking_end_date: parseDate(booking_end_date),
           image: coverImageUrl || "https://images.unsplash.com/photo-1589394815804-964ce0fa2556?auto=format&fit=crop&w=800&q=80",
           addons: {
             create: (addons || []).map((addon) => ({
@@ -143,7 +151,6 @@ router.post("/", async (req, res) => {
               price: parseFloat(addon.price) || 0,
               max_limit: parseInt(addon.max_limit) || 1,
               status: parseInt(addon.status) ?? 1,
-              booking_id: addon.booking_id ? parseInt(addon.booking_id) : null,
             })),
           },
           dayplans: {
@@ -251,7 +258,7 @@ router.post("/", async (req, res) => {
 router.put("/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const { name, description, price, location_id, status, image, images, days, partner_id, partner_ids, addons } = req.body;
+    const { name, description, price, location_id, status, image, images, days, partner_id, partner_ids, addons, booking_start_date, booking_end_date } = req.body;
 
     const primaryPartnerId = partner_id ? parseInt(partner_id) : (Array.isArray(partner_ids) && partner_ids.length > 0 ? parseInt(partner_ids[0]) : null);
 
@@ -266,6 +273,8 @@ router.put("/:id", async (req, res) => {
           location_id: parseInt(location_id) || null,
           partner_id: primaryPartnerId || null,
           status: status || "Draft",
+          booking_start_date: parseDate(booking_start_date),
+          booking_end_date: parseDate(booking_end_date),
           image: image,
         },
       });
@@ -326,21 +335,66 @@ router.put("/:id", async (req, res) => {
         });
       }
 
-      // Sync addons: delete old and recreate
-      await tx.addonPackage.deleteMany({ where: { package_id: id } });
-      if (Array.isArray(addons) && addons.length > 0) {
+      // Sync addons safely preserving foreign key constraints with booking_addons
+      if (Array.isArray(addons)) {
+        const existingAddons = await tx.addonPackage.findMany({
+          where: { package_id: id },
+          include: {
+            _count: {
+              select: { booking_addons: true },
+            },
+          },
+        });
+
+        const keptAddonIds = new Set();
+
         for (const addon of addons) {
-          if (addon.addon_name?.trim()) {
-            await tx.addonPackage.create({
+          if (!addon.addon_name?.trim()) continue;
+
+          const parsedId = addon.id ? parseInt(addon.id) : null;
+          const matchingExisting = parsedId
+            ? existingAddons.find((ea) => ea.id === parsedId)
+            : null;
+
+          if (matchingExisting) {
+            keptAddonIds.add(matchingExisting.id);
+            await tx.addonPackage.update({
+              where: { id: matchingExisting.id },
+              data: {
+                addon_name: addon.addon_name.trim(),
+                price: parseFloat(addon.price) || 0,
+                max_limit: parseInt(addon.max_limit) || 1,
+                status: addon.status !== undefined ? parseInt(addon.status) : 1,
+              },
+            });
+          } else {
+            const created = await tx.addonPackage.create({
               data: {
                 package_id: id,
                 addon_name: addon.addon_name.trim(),
                 price: parseFloat(addon.price) || 0,
                 max_limit: parseInt(addon.max_limit) || 1,
-                status: parseInt(addon.status) ?? 1,
-                booking_id: addon.booking_id ? parseInt(addon.booking_id) : null,
+                status: addon.status !== undefined ? parseInt(addon.status) : 1,
               },
             });
+            keptAddonIds.add(created.id);
+          }
+        }
+
+        // Handle addons that were removed from the package by the admin
+        for (const existing of existingAddons) {
+          if (!keptAddonIds.has(existing.id)) {
+            if (existing._count.booking_addons > 0) {
+              // Cannot hard-delete because of existing booking foreign key constraint; deactivate instead
+              await tx.addonPackage.update({
+                where: { id: existing.id },
+                data: { status: 0 },
+              });
+            } else {
+              await tx.addonPackage.delete({
+                where: { id: existing.id },
+              });
+            }
           }
         }
       }

@@ -5,6 +5,8 @@ model Package {
   price       Float?
   status      String   @default("Draft")
   image       String?
+  booking_start_date DateTime?
+  booking_end_date   DateTime?
   createdAt   DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
   updatedAt   DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
 
