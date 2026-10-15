@@ -22,6 +22,11 @@ model Booking {
   contact_line_id String?
   special_request String? // คำขอพิเศษ เช่น แพ้อาหาร, วีลแชร์
 
+  //coupon code
+  discount_code   String?  // โค้ดส่วนลดที่นำมาใช้ เช่น "ZT-DISC-50-X9A2"
+  discount_amount Float    @default(0) // มูลค่าส่วนลดที่ได้รับ (เช่น 100 บาท)
+  points_earned   Int      @default(0) // แต้มที่ได้รับจากการจองครั้งนี้ (เช่น 120 แต้ม)
+
   // ข้อมูลราคา (บันทึกราคา ณ วันที่จอง เพื่อป้องกันราคาแพ็กเกจเปลี่ยนในอนาคต)
   package_price Float // ราคาต่อท่าน ณ เวลาที่จอง
   addon_total   Float @default(0)

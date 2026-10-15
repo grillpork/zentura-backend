@@ -15,6 +15,7 @@ model User {
   email     String   @unique
   password  String
   lineId    String?
+  phone     String?
   age       Int?
   roleId    Int
   role      Role     @relation(fields: [roleId], references: [id])
@@ -23,6 +24,7 @@ model User {
 
   bookings       Booking[]
   bookingCollaps BookingCollaps[]
+  
 }
 
 model Emp {

@@ -5,8 +5,10 @@ model Package {
   price       Float?
   status      String   @default("Draft")
   image       String?
-  booking_start_date DateTime?
-  booking_end_date   DateTime?
+  start_date         DateTime? // วันเริ่มต้นการเดินทาง
+  end_date           DateTime? // วันสิ้นสุดการเดินทาง
+  booking_start_date DateTime? // วันเริ่มต้นเปิดรับจอง
+  booking_end_date   DateTime? // วันสิ้นสุดเปิดรับจอง
   createdAt   DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
   updatedAt   DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
 

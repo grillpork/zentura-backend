@@ -118,9 +118,15 @@ router.get("/:id", async (req, res) => {
 // Create new package
 router.post("/", async (req, res) => {
   try {
-    const { name, description, price, location_id, status, image, images, days, partner_id, partner_ids, addons, booking_start_date, booking_end_date } = req.body;
+    const { name, description, price, location_id, status, image, images, days, partner_id, partner_ids, addons, booking_start_date, booking_end_date, start_date, end_date } = req.body;
 
     const primaryPartnerId = partner_id ? parseInt(partner_id) : (Array.isArray(partner_ids) && partner_ids.length > 0 ? parseInt(partner_ids[0]) : null);
+
+    const firstDayDt = Array.isArray(days) ? days.find((d) => d && d.dt)?.dt : null;
+    const lastDayDt = Array.isArray(days) ? [...days].reverse().find((d) => d && d.dt)?.dt : null;
+
+    const calculatedStartDate = parseDate(start_date) || (firstDayDt ? parseDate(firstDayDt) : null);
+    const calculatedEndDate = parseDate(end_date) || (lastDayDt ? parseDate(lastDayDt) : null);
 
     // Determine cover image URL
     let coverImageUrl = image;
@@ -142,6 +148,8 @@ router.post("/", async (req, res) => {
           location_id: parseInt(location_id) || null,
           partner_id: primaryPartnerId || null,
           status: status || "Draft",
+          start_date: calculatedStartDate,
+          end_date: calculatedEndDate,
           booking_start_date: parseDate(booking_start_date),
           booking_end_date: parseDate(booking_end_date),
           image: coverImageUrl || "https://images.unsplash.com/photo-1589394815804-964ce0fa2556?auto=format&fit=crop&w=800&q=80",
@@ -258,9 +266,15 @@ router.post("/", async (req, res) => {
 router.put("/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const { name, description, price, location_id, status, image, images, days, partner_id, partner_ids, addons, booking_start_date, booking_end_date } = req.body;
+    const { name, description, price, location_id, status, image, images, days, partner_id, partner_ids, addons, booking_start_date, booking_end_date, start_date, end_date } = req.body;
 
     const primaryPartnerId = partner_id ? parseInt(partner_id) : (Array.isArray(partner_ids) && partner_ids.length > 0 ? parseInt(partner_ids[0]) : null);
+
+    const firstDayDt = Array.isArray(days) ? days.find((d) => d && d.dt)?.dt : null;
+    const lastDayDt = Array.isArray(days) ? [...days].reverse().find((d) => d && d.dt)?.dt : null;
+
+    const calculatedStartDate = parseDate(start_date) || (firstDayDt ? parseDate(firstDayDt) : null);
+    const calculatedEndDate = parseDate(end_date) || (lastDayDt ? parseDate(lastDayDt) : null);
 
     const result = await prisma.$transaction(async (tx) => {
       // Update basic info & partner
@@ -273,6 +287,8 @@ router.put("/:id", async (req, res) => {
           location_id: parseInt(location_id) || null,
           partner_id: primaryPartnerId || null,
           status: status || "Draft",
+          start_date: calculatedStartDate,
+          end_date: calculatedEndDate,
           booking_start_date: parseDate(booking_start_date),
           booking_end_date: parseDate(booking_end_date),
           image: image,

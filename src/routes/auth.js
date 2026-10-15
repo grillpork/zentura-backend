@@ -98,6 +98,9 @@ router.post('/login', async (req, res) => {
                     id: user.id,
                     email: user.email,
                     name: user.name,
+                    phone: user.phone || '',
+                    lineId: user.lineId || '',
+                    age: user.age || null,
                     roleId: user.roleId,
                     role: user.role?.name
                 }
@@ -251,9 +254,15 @@ router.get('/me', authMiddleware, async (req, res) => {
                 id: true, 
                 email: true, 
                 name: true, 
+                phone: true,
+                lineId: true,
+                age: true,
                 roleId: true,
-                role: { select: { name: true } },
-                createdAt: true 
+                role: { select: { id: true, name: true } },
+                createdAt: true,
+                _count: {
+                    select: { bookings: true }
+                }
             }
         });
 
@@ -274,6 +283,8 @@ router.get('/me', authMiddleware, async (req, res) => {
                     email: emp.email,
                     name: emp.name,
                     phone: emp.phone || '',
+                    lineId: emp.lineId || '',
+                    age: emp.age || null,
                     roleId: emp.RoleId,
                     role: emp.Role,
                     position: emp.Role?.name || 'Admin',
@@ -288,6 +299,140 @@ router.get('/me', authMiddleware, async (req, res) => {
     } catch (error) {
         console.error('Get me error:', error);
         res.status(500).json({ message: 'เกิดข้อผิดพลาดจากเซิร์ฟเวอร์ กรุณาลองใหม่อีกครั้ง' });
+    }
+});
+
+// Update profile for user or employee
+router.put('/profile', authMiddleware, async (req, res) => {
+    try {
+        const { name, phone, lineId, age } = req.body;
+        const userId = req.user.id;
+
+        const user = await prisma.user.findUnique({ where: { id: userId } });
+        if (user) {
+            const updated = await prisma.user.update({
+                where: { id: userId },
+                data: {
+                    name: name !== undefined ? name.trim() : user.name,
+                    phone: phone !== undefined ? (phone ? phone.trim() : null) : user.phone,
+                    lineId: lineId !== undefined ? (lineId ? lineId.trim() : null) : user.lineId,
+                    age: age !== undefined ? (age ? parseInt(age) : null) : user.age,
+                },
+                select: {
+                    id: true,
+                    email: true,
+                    name: true,
+                    phone: true,
+                    lineId: true,
+                    age: true,
+                    roleId: true,
+                    role: { select: { id: true, name: true } },
+                    createdAt: true,
+                    _count: {
+                        select: { bookings: true }
+                    }
+                }
+            });
+            return res.status(200).json({ success: true, message: 'บันทึกข้อมูลโปรไฟล์เรียบร้อยแล้ว', user: updated });
+        }
+
+        const emp = await prisma.emp.findUnique({ where: { id: userId } });
+        if (emp) {
+            const updatedEmp = await prisma.emp.update({
+                where: { id: userId },
+                data: {
+                    name: name !== undefined ? name.trim() : emp.name,
+                    phone: phone !== undefined ? (phone ? phone.trim() : null) : emp.phone,
+                    lineId: lineId !== undefined ? (lineId ? lineId.trim() : null) : emp.lineId,
+                    age: age !== undefined ? (age ? parseInt(age) : null) : emp.age,
+                },
+                include: { Role: { select: { name: true } } }
+            });
+            return res.status(200).json({
+                success: true,
+                message: 'บันทึกข้อมูลโปรไฟล์เรียบร้อยแล้ว',
+                user: {
+                    id: updatedEmp.id,
+                    email: updatedEmp.email,
+                    name: updatedEmp.name,
+                    phone: updatedEmp.phone || '',
+                    lineId: updatedEmp.lineId || '',
+                    age: updatedEmp.age || null,
+                    roleId: updatedEmp.roleId,
+                    role: updatedEmp.Role,
+                    position: updatedEmp.Role?.name || 'Admin',
+                    status: updatedEmp.status || 'ใช้งาน',
+                }
+            });
+        }
+
+        return res.status(404).json({ success: false, message: 'ไม่พบผู้ใช้งาน' });
+    } catch (error) {
+        console.error('Update profile error:', error);
+        return res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาดในการอัปเดตโปรไฟล์', error: error.message });
+    }
+});
+
+// Change password for user
+router.post('/change-password', authMiddleware, async (req, res) => {
+    try {
+        const { currentPassword, newPassword } = req.body;
+        const userId = req.user.id;
+
+        if (!currentPassword || !newPassword) {
+            return res.status(400).json({ success: false, message: 'กรุณากรอกรหัสผ่านปัจจุบันและรหัสผ่านใหม่' });
+        }
+        if (newPassword.length < 6) {
+            return res.status(400).json({ success: false, message: 'รหัสผ่านใหม่ต้องมีความยาวอย่างน้อย 6 ตัวอักษร' });
+        }
+
+        const user = await prisma.user.findUnique({ where: { id: userId } });
+        if (user) {
+            let isMatch = false;
+            try {
+                isMatch = await bcrypt.compare(currentPassword, user.password);
+            } catch (e) {
+                isMatch = false;
+            }
+            if (!isMatch && user.password === currentPassword) {
+                isMatch = true;
+            }
+            if (!isMatch) {
+                return res.status(400).json({ success: false, message: 'รหัสผ่านปัจจุบันไม่ถูกต้อง' });
+            }
+
+            const salt = await bcrypt.genSalt(10);
+            const hashedPassword = await bcrypt.hash(newPassword, salt);
+            await prisma.user.update({
+                where: { id: userId },
+                data: { password: hashedPassword }
+            });
+            return res.status(200).json({ success: true, message: 'เปลี่ยนรหัสผ่านสำเร็จเรียบร้อยแล้ว' });
+        }
+
+        const emp = await prisma.emp.findUnique({ where: { id: userId } });
+        if (emp) {
+            let isMatch = emp.password === currentPassword;
+            if (!isMatch) {
+                try {
+                    isMatch = await bcrypt.compare(currentPassword, emp.password);
+                } catch (e) {}
+            }
+            if (!isMatch) {
+                return res.status(400).json({ success: false, message: 'รหัสผ่านปัจจุบันไม่ถูกต้อง' });
+            }
+
+            await prisma.emp.update({
+                where: { id: userId },
+                data: { password: newPassword, isPasswordSet: 1 }
+            });
+            return res.status(200).json({ success: true, message: 'เปลี่ยนรหัสผ่านสำเร็จเรียบร้อยแล้ว' });
+        }
+
+        return res.status(404).json({ success: false, message: 'ไม่พบผู้ใช้งาน' });
+    } catch (error) {
+        console.error('Change password error:', error);
+        return res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาดในการเปลี่ยนรหัสผ่าน', error: error.message });
     }
 });
 
