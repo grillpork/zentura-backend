@@ -11,6 +11,7 @@ const partnerRoutes = require("./routes/partner.js");
 const packageRoutes = require("./routes/package.js");
 const BookingRouter = require("./routes/booking.js");
 const collabRoutes = require("./routes/collab.js");
+const BusRouter = require("./routes/bus.js");
 const { employeeRoute } = require("./routes/employee.js");
 const { positionRoute } = require("./routes/position.js");
 const { prisma } = require("./config/db.js");
@@ -53,6 +54,8 @@ server.use("/api/booking", BookingRouter);
 server.use("/booking", BookingRouter);
 server.use("/api/collab", collabRoutes);
 server.use("/collab", collabRoutes);
+server.use("/api/bus", BusRouter);
+server.use("/bus", BusRouter);
 server.use("/api/collaps", collabRoutes);
 server.use("/collaps", collabRoutes);
 

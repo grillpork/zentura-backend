@@ -1,0 +1,19 @@
+// รถบัส + ผังที่นั่ง (ชื่อที่นั่งคำนวณจาก rows/blocks ไม่เก็บเป็นตาราง)
+model Bus {
+  id     Int     @id @default(autoincrement())
+  name   String // เช่น "บัส 1"
+  plate  String? // ทะเบียนรถ
+
+  // ผังที่นั่ง { decks: [["111011", ...], ...] } 1 ชั้น = 1 ตาราง (1 = ที่นั่ง, 0 = ว่าง/ทางเดิน)
+  // ชื่อที่นั่งคำนวณจากตำแหน่ง ไม่เก็บเป็นตาราง (ดู src/lib/seats.js)
+  layout Json
+
+  // ACTIVE = ใช้งาน, PAUSED = หยุดใช้ชั่วคราว, BROKEN = รถเสีย
+  status String  @default("ACTIVE")
+  note   String? // เหตุที่หยุด/เสีย
+
+  createdAt DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  updatedAt DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+
+  @@map("buses")
+}
