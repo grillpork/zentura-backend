@@ -4,7 +4,7 @@ const jwt = require("jsonwebtoken");
 const { authMiddleware } = require("../middlewares/authMiddleware.js");
 const Stripe = require("stripe");
 const stripe = new
-Stripe(process.env.STRIPE_SECRET_KEY);
+    Stripe(process.env.STRIPE_SECRET_KEY);
 
 const BookingRouter = express.Router();
 
@@ -15,6 +15,103 @@ const generateBookingCode = () => {
     const randomStr = Math.random().toString(36).substring(2, 6).toUpperCase();
     return `ZT-${dateStr}-${randomStr}`;
 };
+
+// -------------------------------------------------------------
+// ระบบคำนวณและสะสมแต้มสมาชิก (Loyalty Points System)
+// มาตรฐานธุรกิจท่องเที่ยว: ยอดชำระทุก 100 บาท รับ 1 แต้มสะสม
+// -------------------------------------------------------------
+async function awardBookingPoints(tx, bookingId) {
+    try {
+        const booking = await tx.booking.findUnique({
+            where: { id: bookingId },
+            include: { pointTransactions: true }
+        });
+        if (!booking || !booking.user_id) return 0;
+
+        // ป้องกันการให้แต้มซ้ำซ้อน (Idempotency)
+        const alreadyAwarded = booking.pointTransactions?.some(pt => pt.type === "EARN_BOOKING");
+        if (alreadyAwarded || booking.points_earned > 0) return booking.points_earned;
+
+        // คำนวณแต้ม: 100 THB = 1 Point
+        const pointsToAward = Math.floor((booking.total_price || 0) / 100);
+        if (pointsToAward <= 0) return 0;
+
+        // 1. บันทึกประวัติการรับแต้ม
+        await tx.pointTransaction.create({
+            data: {
+                user_id: booking.user_id,
+                booking_id: booking.id,
+                points: pointsToAward,
+                type: "EARN_BOOKING",
+                description: `ได้รับแต้มสะสมจากการจองแพ็กเกจท่องเที่ยว รหัส ${booking.booking_code} (ยอดชำระ ฿${Math.round(booking.total_price).toLocaleString()})`
+            }
+        });
+
+        // 2. เพิ่มแต้มในบัญชีผู้ใช้
+        await tx.user.update({
+            where: { id: booking.user_id },
+            data: { points: { increment: pointsToAward } }
+        });
+
+        // 3. บันทึกแต้มที่ได้รับลงใน Booking
+        await tx.booking.update({
+            where: { id: booking.id },
+            data: { points_earned: pointsToAward }
+        });
+
+        return pointsToAward;
+    } catch (err) {
+        console.error("AWARD POINTS ERROR:", err);
+        return 0;
+    }
+}
+
+async function deductBookingPointsOnCancel(tx, bookingId) {
+    try {
+        const booking = await tx.booking.findUnique({
+            where: { id: bookingId },
+            include: { pointTransactions: true }
+        });
+        if (!booking || !booking.user_id) return 0;
+
+        const earnTx = booking.pointTransactions?.find(pt => pt.type === "EARN_BOOKING");
+        const alreadyDeducted = booking.pointTransactions?.some(pt => pt.type === "CANCEL_REFUND");
+
+        if (earnTx && !alreadyDeducted) {
+            const pointsToDeduct = earnTx.points;
+
+            await tx.pointTransaction.create({
+                data: {
+                    user_id: booking.user_id,
+                    booking_id: booking.id,
+                    points: -pointsToDeduct,
+                    type: "CANCEL_REFUND",
+                    description: `หักแต้มสะสมคืนเนื่องจากการยกเลิกการจอง รหัส ${booking.booking_code}`
+                }
+            });
+
+            const user = await tx.user.findUnique({ where: { id: booking.user_id } });
+            const currentPoints = user?.points || 0;
+            const newPoints = Math.max(0, currentPoints - pointsToDeduct);
+
+            await tx.user.update({
+                where: { id: booking.user_id },
+                data: { points: newPoints }
+            });
+
+            await tx.booking.update({
+                where: { id: booking.id },
+                data: { points_earned: 0 }
+            });
+
+            return pointsToDeduct;
+        }
+        return 0;
+    } catch (err) {
+        console.error("DEDUCT POINTS ERROR:", err);
+        return 0;
+    }
+}
 
 BookingRouter.post("/", async (req, res) => {
     try {
@@ -40,7 +137,7 @@ BookingRouter.post("/", async (req, res) => {
         // คำนวณราคาส่วนแรกจาก pkg
         const pkg = await prisma.package.findUnique({
             where: { id: parseInt(package_id) },
-            include: { 
+            include: {
                 addons: true,
                 dayplans: { orderBy: { day_num: "asc" } }
             }
@@ -81,26 +178,26 @@ BookingRouter.post("/", async (req, res) => {
         const addonInsertData = [];
         //select addon ห้ามติดลบ
         if (Array.isArray(selected_addons) && selected_addons.length > 0) {
-            for(const item of selected_addons){
-                const addonId = typeof item === "object" 
-                    ? parseInt(item.addon_id) 
+            for (const item of selected_addons) {
+                const addonId = typeof item === "object"
+                    ? parseInt(item.addon_id)
                     : parseInt(item);
                 const foundAddon = pkg.addons.find(a => a.id === addonId);
-            
-            if (foundAddon && foundAddon.status === 1) {
-                const qty = item.quantity || 1;
-                const cost = foundAddon.price;
 
-                addonTotal += cost;
-                addonInsertData.push({
-                    addon_id: foundAddon.id,
-                    addon_name: foundAddon.addon_name,
-                    price: foundAddon.price,
-                    quantity: qty,
-                });
+                if (foundAddon && foundAddon.status === 1) {
+                    const qty = item.quantity || 1;
+                    const cost = foundAddon.price;
+
+                    addonTotal += cost;
+                    addonInsertData.push({
+                        addon_id: foundAddon.id,
+                        addon_name: foundAddon.addon_name,
+                        price: foundAddon.price,
+                        quantity: qty,
+                    });
+                }
             }
         }
-    }
         //รวมราคาสุทธิ
         const grandTotal = baseTotal + addonTotal;
         const bookingCode = generateBookingCode();
@@ -124,8 +221,8 @@ BookingRouter.post("/", async (req, res) => {
         const collabIds = Array.isArray(req.body.collab_ids)
             ? req.body.collab_ids.map(id => parseInt(id)).filter(Boolean)
             : Array.isArray(req.body.collaborators)
-            ? req.body.collaborators.map(c => parseInt(c.id || c)).filter(Boolean)
-            : [];
+                ? req.body.collaborators.map(c => parseInt(c.id || c)).filter(Boolean)
+                : [];
 
         // กรอง ID ผู้ร่วมทริป ไม่ให้ซ้ำ และไม่รวม user_id ของผู้จองหลัก
         const uniqueCollabIds = [...new Set(collabIds)].filter(cid => cid && cid !== userId);
@@ -267,9 +364,9 @@ BookingRouter.get("/my-bookings", authMiddleware, async (req, res) => {
 
     } catch (error) {
         console.error("GET MY BOOKINGS ERROR:", error);
-        return res.status(500).json({ 
-            message: "เกิดข้อผิดพลาดในการดึงประวัติการจอง", 
-            error: error.message 
+        return res.status(500).json({
+            message: "เกิดข้อผิดพลาดในการดึงประวัติการจอง",
+            error: error.message
         });
     }
 });
@@ -332,9 +429,9 @@ BookingRouter.get("/", async (req, res) => {
         });
     } catch (error) {
         console.error("GET ALL BOOKINGS ERROR:", error);
-        return res.status(500).json({ 
-            message: "เกิดข้อผิดพลาดจากเซิร์ฟเวอร์", 
-            error: error.message 
+        return res.status(500).json({
+            message: "เกิดข้อผิดพลาดจากเซิร์ฟเวอร์",
+            error: error.message
         });
     }
 });
@@ -343,21 +440,21 @@ BookingRouter.get("/", async (req, res) => {
 // GET /:id -> ดึงข้อมูลการจองตาม ID ตัวเลข
 // -------------------------------------------------------------
 BookingRouter.get('/:id', async (req, res, next) => {
-    try{
+    try {
         const id = parseInt(req.params.id);
-        if(isNaN(id)){
+        if (isNaN(id)) {
             return next();
         }
         const booking = await prisma.booking.findUnique({
-            where:{id},
-            include:{
-                package:{
-                    select:{
-                        id:true,
-                        name:true,
-                        price:true,
-                        image:true,
-                        description:true
+            where: { id },
+            include: {
+                package: {
+                    select: {
+                        id: true,
+                        name: true,
+                        price: true,
+                        image: true,
+                        description: true
                     }
                 },
                 user: {
@@ -381,18 +478,18 @@ BookingRouter.get('/:id', async (req, res, next) => {
                     }
                 },
                 travelers: true,
-                booking_addons:true,
-                payments:{
-                    orderBy:{createdAt:"desc"}
+                booking_addons: true,
+                payments: {
+                    orderBy: { createdAt: "desc" }
                 }
             }
         });
-        if(!booking){
-             return res.status(404).json({ message: "ไม่พบข้อมูลการจองตาม ID นี้" });
+        if (!booking) {
+            return res.status(404).json({ message: "ไม่พบข้อมูลการจองตาม ID นี้" });
         }
-        return res.status(200).json({data: booking});
+        return res.status(200).json({ data: booking });
     }
-    catch(error){
+    catch (error) {
         console.error("GET BOOKING BY ID ERROR:", error);
         return res.status(500).json({ message: "เกิดข้อผิดพลาดจากเซิร์ฟเวอร์", error: error.message });
     }
@@ -408,8 +505,8 @@ BookingRouter.get("/:code", async (req, res) => {
             return res.status(400).json({ message: "กรุณาระบุรหัสการจอง" });
         }
         const booking = await prisma.booking.findUnique({
-            where: { 
-                booking_code: code.trim() 
+            where: {
+                booking_code: code.trim()
             },
             include: {
                 package: {
@@ -457,9 +554,9 @@ BookingRouter.get("/:code", async (req, res) => {
         });
     } catch (error) {
         console.error("GET BOOKING ERROR:", error);
-        return res.status(500).json({ 
-            message: "เกิดข้อผิดพลาดจากเซิร์ฟเวอร์", 
-            error: error.message 
+        return res.status(500).json({
+            message: "เกิดข้อผิดพลาดจากเซิร์ฟเวอร์",
+            error: error.message
         });
     }
 });
@@ -479,9 +576,19 @@ BookingRouter.patch("/:id/status", async (req, res) => {
             return res.status(400).json({ message: "กรุณาระบุสถานะที่ต้องการเปลี่ยน" });
         }
 
-        const updatedBooking = await prisma.booking.update({
-            where: { id },
-            data: { status }
+        const updatedBooking = await prisma.$transaction(async (tx) => {
+            const b = await tx.booking.update({
+                where: { id },
+                data: { status }
+            });
+
+            if (status === "CONFIRMED") {
+                await awardBookingPoints(tx, id);
+            } else if (status === "CANCELLED") {
+                await deductBookingPointsOnCancel(tx, id);
+            }
+
+            return b;
         });
 
         return res.status(200).json({
@@ -526,7 +633,7 @@ BookingRouter.post("/:code/mock-pay", async (req, res) => {
             });
         }
 
-        // ใช้ Transaction เพื่อปรับสถานะการจองและสร้างรายการชำระเงิน Payment
+        // ใช้ Transaction เพื่อปรับสถานะการจอง สร้างรายการชำระเงิน และมอบแต้มสะสม
         const result = await prisma.$transaction(async (tx) => {
             const updatedBooking = await tx.booking.update({
                 where: { id: booking.id },
@@ -544,6 +651,9 @@ BookingRouter.post("/:code/mock-pay", async (req, res) => {
                     paid_at: new Date()
                 }
             });
+
+            // คำนวณและมอบแต้มสะสม
+            await awardBookingPoints(tx, booking.id);
 
             return {
                 ...updatedBooking,
@@ -587,11 +697,15 @@ BookingRouter.post("/:code/cancel", async (req, res) => {
             return res.status(400).json({ success: false, message: "รายการจองนี้ถูกยกเลิกไปแล้ว" });
         }
 
-        // อัปเดตสถานะเป็น CANCELLED
-        const updatedBooking = await prisma.booking.update({
-            where: { id: booking.id },
-            data: { status: "CANCELLED" },
-            include: { package: true, travelers: true, booking_addons: true }
+        // อัปเดตสถานะเป็น CANCELLED และหักแต้มสะสมคืน (ถ้าเคยได้รับ)
+        const updatedBooking = await prisma.$transaction(async (tx) => {
+            const b = await tx.booking.update({
+                where: { id: booking.id },
+                data: { status: "CANCELLED" },
+                include: { package: true, travelers: true, booking_addons: true }
+            });
+            await deductBookingPointsOnCancel(tx, booking.id);
+            return b;
         });
 
         return res.status(200).json({
@@ -692,7 +806,7 @@ BookingRouter.get("/:code/verify-stripe", async (req, res) => {
             if (!booking) {
                 return res.status(404).json({ success: false, message: "ไม่พบการจอง" });
             }
-            // ถ้ายังไม่ได้อัปเดตเป็น CONFIRMED ให้อัปเดตและลงตาราง Payment
+            // ถ้ายังไม่ได้อัปเดตเป็น CONFIRMED ให้อัปเดตและลงตาราง Payment พร้อมมอบแต้ม
             if (booking.status !== "CONFIRMED") {
                 await prisma.$transaction(async (tx) => {
                     await tx.booking.update({
@@ -708,6 +822,8 @@ BookingRouter.get("/:code/verify-stripe", async (req, res) => {
                             paid_at: new Date()
                         }
                     });
+                    // คำนวณและมอบแต้มสะสม
+                    await awardBookingPoints(tx, booking.id);
                 });
                 booking.status = "CONFIRMED";
             }

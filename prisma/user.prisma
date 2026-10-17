@@ -4,41 +4,57 @@ model Role {
   createAt  DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
   updatedAt DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
   access    String?  @default("General access")
-
-  users User[]
-  Emp   Emp[]
+  Emp       Emp[]
+  users     User[]
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  name      String
-  email     String   @unique
-  password  String
-  lineId    String?
-  phone     String?
-  age       Int?
-  roleId    Int
-  role      Role     @relation(fields: [roleId], references: [id])
-  createdAt DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
-  updatedAt DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
-
-  bookings       Booking[]
-  bookingCollaps BookingCollaps[]
-  
+  id                Int                @id @default(autoincrement())
+  name              String
+  email             String             @unique
+  password          String
+  lineId            String?
+  age               Int?
+  roleId            Int
+  createdAt         DateTime           @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  updatedAt         DateTime           @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  phone             String?
+  points            Int                @default(0)
+  role              Role               @relation(fields: [roleId], references: [id])
+  bookingCollaps    BookingCollaps[]
+  bookings          Booking[]
+  pointTransactions PointTransaction[]
 }
 
 model Emp {
-  id            Int      @id @default(autoincrement())
+  id            Int            @id @default(autoincrement())
   name          String
-  email         String   @unique
-  password      String   @default("123456")
+  email         String         @unique
+  password      String         @default("123456")
   lineId        String?
   age           Int?
   roleId        Int
+  createdAt     DateTime       @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  updatedAt     DateTime       @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
   phone         String?
-  status        String?  @default("ใช้งาน")
-  isPasswordSet Int?     @default(0)
-  Role          Role     @relation(fields: [roleId], references: [id])
-  createdAt     DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
-  updatedAt     DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  status        String?        @default("ใช้งาน")
+  isPasswordSet Int?           @default(0)
+  partner_id    Int?
+  partner       Partner?       @relation(fields: [partner_id], references: [id])
+  Role          Role           @relation(fields: [roleId], references: [id])
+  packageGuides PackageGuide[]
+}
+
+model PointTransaction {
+  id          Int      @id @default(autoincrement())
+  user_id     Int
+  booking_id  Int?
+  points      Int
+  type        String
+  description String
+  createdAt   DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  booking     Booking? @relation(fields: [booking_id], references: [id], onUpdate: NoAction)
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("point_transactions")
 }

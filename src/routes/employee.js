@@ -7,27 +7,64 @@ const employeeRoute = Router();
 employeeRoute.get("/employee", async (req, res) => {
   try {
     const list = await prisma.emp.findMany({
-      include: { Role: {
+      include: {
+        Role: {
           select: { id: true, name: true },
+        },
+        packageGuides: {
+          include: {
+            package: {
+              select: {
+                id: true,
+                name: true,
+                status: true,
+                start_date: true,
+                end_date: true,
+                dayplans: {
+                  select: { dt: true },
+                  orderBy: { day_num: "asc" },
+                },
+              },
+            },
+          },
         },
       },
       orderBy: { id: "asc" },
     });
 
-    const data = list.map((emp) => ({
-      id: emp.id,
-      name: emp.name,
-      email: emp.email,
-      phone: emp.phone || "",
-      lineId: emp.lineId || "",
-      age: emp.age || null,
-      roleId: emp.RoleId,
-      position: emp.Role ? emp.Role.name : "ไม่ระบุ",
-      status: emp.status || "ใช้งาน",
-      isPasswordSet: emp.isPasswordSet ?? 0,
-      createdAt: emp.createdAt,
-      updatedAt: emp.updatedAt,
-    }));
+    const data = list.map((emp) => {
+      const activeAssignments = (emp.packageGuides || [])
+        .filter((pg) => pg.package && pg.package.status !== "Cancelled")
+        .map((pg) => {
+          const pkg = pg.package;
+          const firstDay = pkg.dayplans?.[0]?.dt;
+          const lastDay = pkg.dayplans?.[pkg.dayplans.length - 1]?.dt;
+          return {
+            package_id: pkg.id,
+            package_name: pkg.name,
+            start_date: pkg.start_date || firstDay || null,
+            end_date: pkg.end_date || lastDay || pkg.start_date || firstDay || null,
+            role: pg.role,
+          };
+        });
+
+      return {
+        id: emp.id,
+        name: emp.name,
+        email: emp.email,
+        phone: emp.phone || "",
+        lineId: emp.lineId || "",
+        age: emp.age || null,
+        roleId: emp.roleId,
+        role: emp.Role ? emp.Role.name : "ไม่ระบุ",
+        position: emp.Role ? emp.Role.name : "ไม่ระบุ",
+        status: emp.status || "ใช้งาน",
+        isPasswordSet: emp.isPasswordSet ?? 0,
+        createdAt: emp.createdAt,
+        updatedAt: emp.updatedAt,
+        assignments: activeAssignments,
+      };
+    });
 
     return res.json({ success: true, data });
   } catch (error) {

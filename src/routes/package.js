@@ -44,6 +44,21 @@ router.get("/", async (req, res) => {
             },
           },
         },
+        packageGuides: {
+          include: {
+            emp: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                phone: true,
+                roleId: true,
+                Role: { select: { id: true, name: true } },
+              },
+            },
+          },
+          orderBy: { id: "asc" },
+        },
       },
       orderBy: { id: "desc" },
     });
@@ -94,6 +109,21 @@ router.get("/:id", async (req, res) => {
             location: true,
           },
         },
+        packageGuides: {
+          include: {
+            emp: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                phone: true,
+                roleId: true,
+                Role: { select: { id: true, name: true } },
+              },
+            },
+          },
+          orderBy: { id: "asc" },
+        },
         bookingCollaps: {
           include: {
             user: {
@@ -115,10 +145,26 @@ router.get("/:id", async (req, res) => {
   }
 });
 
+function datesOverlap(startA, endA, startB, endB) {
+  if (!startA || !startB) return false;
+  const sA = typeof startA === "string" ? startA.split("T")[0] : new Date(startA).toISOString().split("T")[0];
+  const eA = endA ? (typeof endA === "string" ? endA.split("T")[0] : new Date(endA).toISOString().split("T")[0]) : sA;
+  const sB = typeof startB === "string" ? startB.split("T")[0] : new Date(startB).toISOString().split("T")[0];
+  const eB = endB ? (typeof endB === "string" ? endB.split("T")[0] : new Date(endB).toISOString().split("T")[0]) : sB;
+  return sA <= eB && eA >= sB;
+}
+
+function formatDateRange(start, end) {
+  if (!start) return "-";
+  const s = typeof start === "string" ? start.split("T")[0] : new Date(start).toISOString().split("T")[0];
+  const e = end ? (typeof end === "string" ? end.split("T")[0] : new Date(end).toISOString().split("T")[0]) : s;
+  return s === e ? s : `${s} ถึง ${e}`;
+}
+
 // Create new package
 router.post("/", async (req, res) => {
   try {
-    const { name, description, price, location_id, status, image, images, days, partner_id, partner_ids, addons, booking_start_date, booking_end_date, start_date, end_date } = req.body;
+    const { name, description, price, location_id, status, image, images, days, partner_id, partner_ids, addons, guides, booking_start_date, booking_end_date, start_date, end_date } = req.body;
 
     const primaryPartnerId = partner_id ? parseInt(partner_id) : (Array.isArray(partner_ids) && partner_ids.length > 0 ? parseInt(partner_ids[0]) : null);
 
@@ -229,6 +275,79 @@ router.post("/", async (req, res) => {
         });
       }
 
+      // Handle guides assignment
+      if (Array.isArray(guides) && guides.length > 0) {
+        const seenEmpIds = new Set();
+        for (const g of guides) {
+          const empId = typeof g === "object" ? parseInt(g.emp_id || g.id) : parseInt(g);
+          if (!empId) continue;
+          if (seenEmpIds.has(empId)) continue;
+          seenEmpIds.add(empId);
+
+          // 1. ตรวจสอบ Role: ต้องเป็น role 'ไกด์' เท่านั้น
+          const emp = await tx.emp.findUnique({
+            where: { id: empId },
+            include: { Role: true },
+          });
+
+          if (!emp) {
+            const err = new Error(`ไม่พบข้อมูลพนักงานรหัส ${empId}`);
+            err.isCustom = true;
+            throw err;
+          }
+
+          if (!emp.Role || emp.Role.name !== "ไกด์") {
+            const roleName = emp.Role ? emp.Role.name : "ไม่ระบุ";
+            const err = new Error(`พนักงาน "${emp.name}" (ตำแหน่ง: ${roleName}) ไม่ได้อยู่ในตำแหน่งไกด์ สามารถมอบหมายได้เฉพาะผู้ที่มีตำแหน่ง 'ไกด์' เท่านั้น`);
+            err.isCustom = true;
+            throw err;
+          }
+
+          // 2. ตรวจสอบตารางงานซ้อนกับ Package อื่นในวันเวลาเดียวกัน
+          if (calculatedStartDate) {
+            const existingAssignments = await tx.packageGuide.findMany({
+              where: {
+                emp_id: empId,
+                package: {
+                  status: { not: "Cancelled" },
+                },
+              },
+              include: {
+                package: {
+                  include: {
+                    dayplans: { orderBy: { day_num: "asc" } },
+                  },
+                },
+              },
+            });
+
+            for (const assign of existingAssignments) {
+              const otherPkg = assign.package;
+              if (!otherPkg) continue;
+
+              const otherStart = otherPkg.start_date || (otherPkg.dayplans?.[0]?.dt ? new Date(otherPkg.dayplans[0].dt) : null);
+              const otherEnd = otherPkg.end_date || (otherPkg.dayplans?.[otherPkg.dayplans.length - 1]?.dt ? new Date(otherPkg.dayplans[otherPkg.dayplans.length - 1].dt) : otherStart);
+
+              if (otherStart && datesOverlap(calculatedStartDate, calculatedEndDate, otherStart, otherEnd)) {
+                const dateStr = formatDateRange(otherStart, otherEnd);
+                const err = new Error(`ไกด์ "${emp.name}" ไม่สามารถรับงานได้ เนื่องจากมีงานซ้อนกับแพ็กเกจ "${otherPkg.name}" ในช่วงวันที่ ${dateStr}`);
+                err.isCustom = true;
+                throw err;
+              }
+            }
+          }
+
+          await tx.packageGuide.create({
+            data: {
+              package_id: newPackage.id,
+              emp_id: empId,
+              role: typeof g === "object" && g.role ? g.role : "LEAD_GUIDE",
+              note: typeof g === "object" && g.note ? g.note.trim() : null,
+            },
+          });
+        }
+      }
+
       // Handle meals
       if (Array.isArray(days)) {
         for (const day of days) {
@@ -258,7 +377,11 @@ router.post("/", async (req, res) => {
     return res.status(201).json({ success: true, data: result });
   } catch (error) {
     console.error("Create package error:", error);
-    return res.status(500).json({ message: "Server error", error: error.message });
+    let friendlyMessage = error.message || "เกิดข้อผิดพลาดในการสร้างแพ็กเกจ กรุณาลองใหม่อีกครั้ง";
+    if (error.code === "P2002" || error.message?.includes("Unique constraint")) {
+      friendlyMessage = "ไม่สามารถบันทึกได้ เนื่องจากมีข้อมูลที่ซ้ำกันในระบบ (เช่น มัคคุเทศก์ที่มอบหมายซ้ำ)";
+    }
+    return res.status(error.isCustom ? 400 : 500).json({ success: false, message: friendlyMessage, error: friendlyMessage });
   }
 });
 
@@ -266,7 +389,7 @@ router.post("/", async (req, res) => {
 router.put("/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const { name, description, price, location_id, status, image, images, days, partner_id, partner_ids, addons, booking_start_date, booking_end_date, start_date, end_date } = req.body;
+    const { name, description, price, location_id, status, image, images, days, partner_id, partner_ids, addons, guides, booking_start_date, booking_end_date, start_date, end_date } = req.body;
 
     const primaryPartnerId = partner_id ? parseInt(partner_id) : (Array.isArray(partner_ids) && partner_ids.length > 0 ? parseInt(partner_ids[0]) : null);
 
@@ -470,13 +593,92 @@ router.put("/:id", async (req, res) => {
         }
       }
 
+      // Sync package guides
+      if (Array.isArray(guides)) {
+        await tx.packageGuide.deleteMany({ where: { package_id: id } });
+        const seenEmpIds = new Set();
+        for (const g of guides) {
+          const empId = typeof g === "object" ? parseInt(g.emp_id || g.id) : parseInt(g);
+          if (!empId) continue;
+          if (seenEmpIds.has(empId)) continue;
+          seenEmpIds.add(empId);
+
+          // 1. ตรวจสอบ Role: ต้องเป็น role 'ไกด์' เท่านั้น
+          const emp = await tx.emp.findUnique({
+            where: { id: empId },
+            include: { Role: true },
+          });
+
+          if (!emp) {
+            const err = new Error(`ไม่พบข้อมูลพนักงานรหัส ${empId}`);
+            err.isCustom = true;
+            throw err;
+          }
+
+          if (!emp.Role || emp.Role.name !== "ไกด์") {
+            const roleName = emp.Role ? emp.Role.name : "ไม่ระบุ";
+            const err = new Error(`พนักงาน "${emp.name}" (ตำแหน่ง: ${roleName}) ไม่ได้อยู่ในตำแหน่งไกด์ สามารถมอบหมายได้เฉพาะผู้ที่มีตำแหน่ง 'ไกด์' เท่านั้น`);
+            err.isCustom = true;
+            throw err;
+          }
+
+          // 2. ตรวจสอบตารางงานซ้อนกับ Package อื่นในวันเวลาเดียวกัน
+          if (calculatedStartDate) {
+            const existingAssignments = await tx.packageGuide.findMany({
+              where: {
+                emp_id: empId,
+                package_id: { not: id }, // exclude current package being updated
+                package: {
+                  status: { not: "Cancelled" },
+                },
+              },
+              include: {
+                package: {
+                  include: {
+                    dayplans: { orderBy: { day_num: "asc" } },
+                  },
+                },
+              },
+            });
+
+            for (const assign of existingAssignments) {
+              const otherPkg = assign.package;
+              if (!otherPkg) continue;
+
+              const otherStart = otherPkg.start_date || (otherPkg.dayplans?.[0]?.dt ? new Date(otherPkg.dayplans[0].dt) : null);
+              const otherEnd = otherPkg.end_date || (otherPkg.dayplans?.[otherPkg.dayplans.length - 1]?.dt ? new Date(otherPkg.dayplans[otherPkg.dayplans.length - 1].dt) : otherStart);
+
+              if (otherStart && datesOverlap(calculatedStartDate, calculatedEndDate, otherStart, otherEnd)) {
+                const dateStr = formatDateRange(otherStart, otherEnd);
+                const err = new Error(`ไกด์ "${emp.name}" ไม่สามารถรับงานได้ เนื่องจากมีงานซ้อนกับแพ็กเกจ "${otherPkg.name}" ในช่วงวันที่ ${dateStr}`);
+                err.isCustom = true;
+                throw err;
+              }
+            }
+          }
+
+          await tx.packageGuide.create({
+            data: {
+              package_id: id,
+              emp_id: empId,
+              role: typeof g === "object" && g.role ? g.role : "LEAD_GUIDE",
+              note: typeof g === "object" && g.note ? g.note.trim() : null,
+            },
+          });
+        }
+      }
+
       return updatedPackage;
     });
 
     return res.status(200).json({ success: true, data: result });
   } catch (error) {
     console.error("Update package error:", error);
-    return res.status(500).json({ message: "Server error", error: error.message });
+    let friendlyMessage = error.message || "เกิดข้อผิดพลาดในการบันทึกข้อมูลแพ็กเกจ กรุณาลองใหม่อีกครั้ง";
+    if (error.code === "P2002" || error.message?.includes("Unique constraint")) {
+      friendlyMessage = "ไม่สามารถบันทึกได้ เนื่องจากมีข้อมูลที่ซ้ำกันในระบบ (เช่น มัคคุเทศก์ที่มอบหมายซ้ำ)";
+    }
+    return res.status(error.isCustom ? 400 : 500).json({ success: false, message: friendlyMessage, error: friendlyMessage });
   }
 });
 
@@ -485,8 +687,9 @@ router.delete("/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     await prisma.$transaction(async (tx) => {
-      // 1. Delete package partners, addons, & images
+      // 1. Delete package partners, addons, images, & guides
       await tx.packagePartner.deleteMany({ where: { package_id: id } });
+      await tx.packageGuide.deleteMany({ where: { package_id: id } });
       await tx.addonPackage.deleteMany({ where: { package_id: id } });
       await tx.packageImage.deleteMany({ where: { package_id: id } });
 

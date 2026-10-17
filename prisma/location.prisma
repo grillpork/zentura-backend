@@ -9,15 +9,15 @@ model LocationType {
 }
 
 model Location {
-  id          Int          @id @default(autoincrement())
+  id          Int               @id @default(autoincrement())
   name        String
-  createAt    DateTime     @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
-  updatedAt   DateTime     @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
-  lct_type_id Int          @default(1)
-  lct_type    LocationType @relation(fields: [lct_type_id], references: [id], onUpdate: Cascade, onDelete: Cascade)
-
-  packages Package[]
-  dayplans DayplanTimeline[]
+  createAt    DateTime          @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  updatedAt   DateTime          @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  lct_type_id Int               @default(1)
+  dayplans    DayplanTimeline[]
+  lct_type    LocationType      @relation(fields: [lct_type_id], references: [id], onDelete: Cascade)
+  packages    Package[]
+  partner     Partner[]
 
   @@map("location")
 }

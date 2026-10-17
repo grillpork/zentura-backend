@@ -5,12 +5,14 @@ const authMiddleware = (req, res, next) => {
     const authHeader = req.headers['authorization'];
     
     if (!authHeader) {
+        console.warn('AUTH_MIDDLEWARE: Missing authorization header');
         return res.status(401).json({ message: 'ไม่พบ Token การยืนยันตัวตน' });
     }
 
     const token = authHeader.split(' ')[1];
     
     if (!token) {
+        console.warn('AUTH_MIDDLEWARE: Malformed token');
         return res.status(401).json({ message: 'รูปแบบ Token ไม่ถูกต้อง' });
     }
 
@@ -19,6 +21,7 @@ const authMiddleware = (req, res, next) => {
         req.user = decoded;
         next();
     } catch (error) {
+        console.warn('AUTH_MIDDLEWARE: Token verify error:', error.message);
         return res.status(401).json({ message: 'Token หมดอายุหรือไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่' });
     }
 };

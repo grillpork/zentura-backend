@@ -102,7 +102,8 @@ router.post('/login', async (req, res) => {
                     lineId: user.lineId || '',
                     age: user.age || null,
                     roleId: user.roleId,
-                    role: user.role?.name
+                    role: user.role?.name,
+                    points: user.points || 0
                 }
             });
         }
@@ -257,6 +258,7 @@ router.get('/me', authMiddleware, async (req, res) => {
                 phone: true,
                 lineId: true,
                 age: true,
+                points: true,
                 roleId: true,
                 role: { select: { id: true, name: true } },
                 createdAt: true,
@@ -457,6 +459,56 @@ router.get('/users/search', async (req, res) => {
     } catch (error) {
         console.error('Search users error:', error);
         return res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาดในการค้นหาผู้ใช้งาน', error: error.message });
+    }
+});
+
+// GET /points/my-points (or /api/auth/points/my-points)
+router.get('/points/my-points', authMiddleware, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                points: true,
+                pointTransactions: {
+                    orderBy: { createdAt: 'desc' },
+                    include: {
+                        booking: {
+                            select: {
+                                id: true,
+                                booking_code: true,
+                                total_price: true,
+                                package: {
+                                    select: {
+                                        id: true,
+                                        name: true,
+                                        image: true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'ไม่พบข้อมูลผู้ใช้งาน' });
+        }
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                points: user.points || 0,
+                transactions: user.pointTransactions || []
+            }
+        });
+    } catch (error) {
+        console.error('Get my-points error:', error);
+        return res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาดในการดึงข้อมูลแต้มสะสม', error: error.message });
     }
 });
 

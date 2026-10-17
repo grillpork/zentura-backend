@@ -1,28 +1,28 @@
 model PartnerType {
-  id        Int      @id @default(autoincrement())
-  name      String   @unique
-  createAt  DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
-  updatedAt DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
-
-  partners Partner[]
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  createAt  DateTime  @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  updatedAt DateTime  @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  partners  Partner[]
 
   @@map("partner_type")
 }
 
 model Partner {
-  id        Int      @id @default(autoincrement())
-  name      String   @unique
-  phone     String   @unique
-  email     String   @unique
-  address   String?
-  createAt  DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
-  updatedAt DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
-
-  pt_type_id Int
-  pt_type    PartnerType @relation(fields: [pt_type_id], references: [id], onUpdate: Cascade, onDelete: Cascade)
-
-  packages        Package[]
+  id              Int              @id @default(autoincrement())
+  name            String           @unique
+  phone           String           @unique
+  email           String           @unique
+  address         String?
+  createAt        DateTime         @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  updatedAt       DateTime         @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  pt_type_id      Int
+  location_id     Int?
+  Emp             Emp[]
   packagePartners PackagePartner[]
+  packages        Package[]
+  location        Location?        @relation(fields: [location_id], references: [id])
+  pt_type         PartnerType      @relation(fields: [pt_type_id], references: [id], onDelete: Cascade)
 
   @@map("partner")
 }
@@ -30,9 +30,8 @@ model Partner {
 model PackagePartner {
   package_id Int
   partner_id Int
-
-  package Package @relation(fields: [package_id], references: [id], onDelete: Cascade)
-  partner Partner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+  package    Package @relation(fields: [package_id], references: [id], onDelete: Cascade)
+  partner    Partner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
 
   @@id([package_id, partner_id])
   @@map("package_partners")

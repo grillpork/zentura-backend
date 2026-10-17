@@ -1,78 +1,84 @@
 model Package {
-  id          Int      @id @default(autoincrement())
-  name        String
-  description String?
-  price       Float?
-  status      String   @default("Draft")
-  image       String?
-  start_date         DateTime? // วันเริ่มต้นการเดินทาง
-  end_date           DateTime? // วันสิ้นสุดการเดินทาง
-  booking_start_date DateTime? // วันเริ่มต้นเปิดรับจอง
-  booking_end_date   DateTime? // วันสิ้นสุดเปิดรับจอง
-  createdAt   DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
-  updatedAt   DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
-
-  location_id Int?
-  location    Location? @relation(fields: [location_id], references: [id])
-
-  partner_id Int?
-  partner    Partner? @relation(fields: [partner_id], references: [id])
-
-  dayplans       DayplanTimeline[]
-  partners       PackagePartner[]
-  addons         AddonPackage[]
-  images         PackageImage[]
-  bookings       Booking[]
-  bookingCollaps BookingCollaps[]
+  id                 Int               @id @default(autoincrement())
+  name               String
+  description        String?
+  price              Float?
+  status             String            @default("Draft")
+  image              String?
+  createdAt          DateTime          @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  updatedAt          DateTime          @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  location_id        Int?
+  partner_id         Int?
+  booking_end_date   DateTime?
+  booking_start_date DateTime?
+  start_date         DateTime?
+  end_date           DateTime?
+  addons             AddonPackage[]
+  bookingCollaps     BookingCollaps[]
+  bookings           Booking[]
+  dayplans           DayplanTimeline[]
+  packageGuides      PackageGuide[]
+  images             PackageImage[]
+  partners           PackagePartner[]
+  location           Location?         @relation(fields: [location_id], references: [id])
+  partner            Partner?          @relation(fields: [partner_id], references: [id])
 
   @@map("packages")
 }
 
-model AddonPackage {
-  id         Int    @id @default(autoincrement())
-  addon_name String
-  price      Float  @default(0)
-  max_limit  Int    @default(1)
-  status     Int    @default(1) // 1 = ซื้อได้, 0 = ซื้อไม่ได้
-
-  booking_addons BookingAddon[]
-
+model PackageGuide {
+  id         Int      @id @default(autoincrement())
   package_id Int
-  package    Package @relation(fields: [package_id], references: [id], onDelete: Cascade)
+  emp_id     Int
+  role       String?  @default("LEAD_GUIDE")
+  note       String?
+  createdAt  DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  updatedAt  DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  emp        Emp      @relation(fields: [emp_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  package    Package  @relation(fields: [package_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  createdAt DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
-  updatedAt DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  @@unique([package_id, emp_id])
+  @@map("package_guides")
+}
+
+model AddonPackage {
+  id             Int            @id @default(autoincrement())
+  addon_name     String
+  price          Float          @default(0)
+  max_limit      Int            @default(1)
+  status         Int            @default(1)
+  package_id     Int
+  createdAt      DateTime       @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  updatedAt      DateTime       @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  package        Package        @relation(fields: [package_id], references: [id], onDelete: Cascade)
+  booking_addons BookingAddon[]
 
   @@map("addon_package")
 }
 
 model DayplanTimeline {
-  id          Int     @id @default(autoincrement())
+  id          Int                @id @default(autoincrement())
   day_num     Int
   title       String?
   dt          String?
   description String?
   hotel       String?
-
   location_id Int?
-  location    Location? @relation(fields: [location_id], references: [id])
-
-  package_id Int
-  package    Package @relation(fields: [package_id], references: [id], onDelete: Cascade)
-
-  activities ActivityTimeline[]
-  meals      DayplanMeal[]
+  package_id  Int
+  activities  ActivityTimeline[]
+  meals       DayplanMeal[]
+  location    Location?          @relation(fields: [location_id], references: [id])
+  package     Package            @relation(fields: [package_id], references: [id], onDelete: Cascade)
 
   @@map("dayplan_timeline")
 }
 
 model ActivityTimeline {
-  id       Int     @id @default(autoincrement())
-  time     String?
-  activity String
-  status   String? @default("include")
-  landmark String?
-
+  id         Int             @id @default(autoincrement())
+  time       String?
+  activity   String
+  status     String?         @default("include")
+  landmark   String?
   dayplan_id Int
   dayplan    DayplanTimeline @relation(fields: [dayplan_id], references: [id], onDelete: Cascade)
 
@@ -80,10 +86,9 @@ model ActivityTimeline {
 }
 
 model Meal {
-  id        Int    @id @default(autoincrement())
-  type_name String @unique
-
-  dayplans DayplanMeal[]
+  id        Int           @id @default(autoincrement())
+  type_name String        @unique
+  dayplans  DayplanMeal[]
 
   @@map("meal")
 }
@@ -91,25 +96,23 @@ model Meal {
 model DayplanMeal {
   id_dayplan Int
   id_meal    Int
-
-  dayplan DayplanTimeline @relation(fields: [id_dayplan], references: [id], onDelete: Cascade)
-  meal    Meal            @relation(fields: [id_meal], references: [id], onDelete: Cascade)
+  dayplan    DayplanTimeline @relation(fields: [id_dayplan], references: [id], onDelete: Cascade)
+  meal       Meal            @relation(fields: [id_meal], references: [id], onDelete: Cascade)
 
   @@id([id_dayplan, id_meal])
   @@map("dayplan_meal")
 }
 
 model PackageImage {
-  id         Int     @id @default(autoincrement())
+  id         Int      @id @default(autoincrement())
   package_id Int
-  package    Package @relation(fields: [package_id], references: [id], onDelete: Cascade)
   image_url  String
-  is_cover   Boolean @default(false)
-  sort_order Int     @default(0)
+  is_cover   Boolean  @default(false)
+  sort_order Int      @default(0)
   caption    String?
-
-  createdAt DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
-  updatedAt DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  createdAt  DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  updatedAt  DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  package    Package  @relation(fields: [package_id], references: [id], onDelete: Cascade)
 
   @@map("package_images")
 }
