@@ -9,6 +9,36 @@ const parseDate = (d) => {
   return isNaN(parsed.getTime()) ? null : parsed;
 };
 
+const parseBusIds = (value) => {
+  if (value === undefined) return null;
+  const ids = Array.isArray(value) ? value.map((id) => typeof id === "number" || (typeof id === "string" && /^\d+$/.test(id)) ? Number(id) : NaN) : [];
+  if (!Array.isArray(value) || ids.some((id) => !Number.isSafeInteger(id) || id <= 0) || new Set(ids).size !== ids.length) {
+    const error = new Error("รายการรถบัสไม่ถูกต้อง");
+    error.isCustom = true;
+    throw error;
+  }
+  return ids;
+};
+
+const syncPackageBuses = async (tx, packageId, ids, previousIds = []) => {
+  if (ids === null) return;
+  const buses = await tx.bus.findMany({ where: { id: { in: ids } }, select: { id: true, status: true } });
+  if (buses.length !== ids.length || buses.some((bus) => bus.status !== "ACTIVE" && !previousIds.includes(bus.id))) {
+    const error = new Error("เลือกรถบัสที่ใช้งานอยู่เท่านั้น");
+    error.isCustom = true;
+    throw error;
+  }
+  const removed = previousIds.filter((id) => !ids.includes(id));
+  if (removed.length && await tx.bookingSeat.findFirst({ where: { booking: { package_id: packageId }, bus_id: { in: removed } } })) {
+    const error = new Error("ไม่สามารถนำรถออกจากแพ็กเกจได้ เพราะมีการจัดที่นั่งแล้ว");
+    error.isCustom = true;
+    throw error;
+  }
+  if (ids.length === previousIds.length && ids.every((id) => previousIds.includes(id))) return;
+  await tx.packageBus.deleteMany({ where: { package_id: packageId } });
+  if (ids.length) await tx.packageBus.createMany({ data: ids.map((bus_id) => ({ package_id: packageId, bus_id })) });
+};
+
 // Get all packages
 router.get("/", async (req, res) => {
   try {
@@ -59,6 +89,7 @@ router.get("/", async (req, res) => {
           },
           orderBy: { id: "asc" },
         },
+        packageBuses: { select: { bus_id: true } },
       },
       orderBy: { id: "desc" },
     });
@@ -124,6 +155,7 @@ router.get("/:id", async (req, res) => {
           },
           orderBy: { id: "asc" },
         },
+        packageBuses: { select: { bus_id: true } },
         bookingCollaps: {
           include: {
             user: {
@@ -164,7 +196,8 @@ function formatDateRange(start, end) {
 // Create new package
 router.post("/", async (req, res) => {
   try {
-    const { name, description, price, location_id, status, image, images, days, partner_id, partner_ids, addons, guides, booking_start_date, booking_end_date, start_date, end_date } = req.body;
+    const { name, description, price, location_id, status, image, images, days, partner_id, partner_ids, addons, guides, bus_ids, booking_start_date, booking_end_date, start_date, end_date } = req.body;
+    const busIds = parseBusIds(bus_ids);
 
     const primaryPartnerId = partner_id ? parseInt(partner_id) : (Array.isArray(partner_ids) && partner_ids.length > 0 ? parseInt(partner_ids[0]) : null);
 
@@ -371,6 +404,7 @@ router.post("/", async (req, res) => {
         }
       }
 
+      await syncPackageBuses(tx, newPackage.id, busIds);
       return newPackage;
     });
 
@@ -389,7 +423,8 @@ router.post("/", async (req, res) => {
 router.put("/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const { name, description, price, location_id, status, image, images, days, partner_id, partner_ids, addons, guides, booking_start_date, booking_end_date, start_date, end_date } = req.body;
+    const { name, description, price, location_id, status, image, images, days, partner_id, partner_ids, addons, guides, bus_ids, booking_start_date, booking_end_date, start_date, end_date } = req.body;
+    const busIds = parseBusIds(bus_ids);
 
     const primaryPartnerId = partner_id ? parseInt(partner_id) : (Array.isArray(partner_ids) && partner_ids.length > 0 ? parseInt(partner_ids[0]) : null);
 
@@ -668,6 +703,8 @@ router.put("/:id", async (req, res) => {
         }
       }
 
+      const previousBuses = await tx.packageBus.findMany({ where: { package_id: id }, select: { bus_id: true } });
+      await syncPackageBuses(tx, id, busIds, previousBuses.map((item) => item.bus_id));
       return updatedPackage;
     });
 

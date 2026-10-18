@@ -27,6 +27,7 @@ model Booking {
   user              User?              @relation(fields: [user_id], references: [id])
   payments          Payment[]
   pointTransactions PointTransaction[]
+  seats             BookingSeat[]
 
   @@map("bookings")
 }
@@ -41,6 +42,22 @@ model BookingTraveler {
   booking             Booking @relation(fields: [booking_id], references: [id], onDelete: Cascade)
 
   @@map("booking_travelers")
+}
+
+model BookingSeat {
+  id              Int      @id @default(autoincrement())
+  booking_id      Int
+  // shortcut: seat follows a ticket slot; bind traveler IDs if passenger order can change after assignment.
+  passenger_index Int
+  bus_id          Int
+  travel_date     DateTime @db.Date
+  seat_code       String
+  booking         Booking  @relation(fields: [booking_id], references: [id], onDelete: Cascade)
+  bus             Bus      @relation(fields: [bus_id], references: [id])
+
+  @@unique([booking_id, passenger_index])
+  @@unique([bus_id, travel_date, seat_code])
+  @@map("booking_seats")
 }
 
 model BookingAddon {

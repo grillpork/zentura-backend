@@ -61,6 +61,12 @@ BusRoute.put("/:id", async (req, res) => {
     const { data, error } = parseBus(req.body);
     if (error) return res.status(400).json({ success: false, message: error });
 
+    const assignedSeats = await prisma.bookingSeat.findMany({ where: { bus_id: id }, select: { seat_code: true } });
+    const existingBus = await prisma.bus.findUnique({ where: { id }, select: { layout: true } });
+    if (assignedSeats.length && JSON.stringify(existingBus?.layout) !== JSON.stringify(data.layout)) {
+      return res.status(409).json({ success: false, message: "รถคันนี้มีผู้โดยสารที่จัดที่นั่งแล้ว จึงเปลี่ยนผังที่นั่งไม่ได้" });
+    }
+
     const updated = await prisma.bus.update({
       where: { id },
       data: { ...data, updatedAt: new Date(Date.now() + 7 * 3600 * 1000) },
@@ -82,6 +88,7 @@ BusRoute.delete("/:id", async (req, res) => {
     return res.json({ success: true, message: "ลบรถสำเร็จ" });
   } catch (error) {
     if (error.code === "P2025") return res.status(404).json({ success: false, message: "ไม่พบข้อมูลรถ" });
+    if (error.code === "P2003") return res.status(409).json({ success: false, message: "รถคันนี้ถูกใช้ในแพ็กเกจหรือมีการจัดที่นั่งแล้ว" });
     console.error("DELETE /bus/:id error:", error);
     return res.status(500).json({ success: false, message: "เกิดข้อผิดพลาดในการลบรถ", error: error.message });
   }

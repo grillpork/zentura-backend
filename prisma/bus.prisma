@@ -14,6 +14,18 @@ model Bus {
 
   createdAt DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
   updatedAt DateTime @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
+  packages  PackageBus[]
+  seats     BookingSeat[]
 
   @@map("buses")
+}
+
+model PackageBus {
+  package_id Int
+  bus_id     Int
+  package    Package @relation(fields: [package_id], references: [id], onDelete: Cascade)
+  bus        Bus     @relation(fields: [bus_id], references: [id])
+
+  @@id([package_id, bus_id])
+  @@map("package_buses")
 }

@@ -18,6 +18,7 @@ model Package {
   bookings           Booking[]
   dayplans           DayplanTimeline[]
   packageGuides      PackageGuide[]
+  packageBuses       PackageBus[]
   images             PackageImage[]
   partners           PackagePartner[]
   location           Location?         @relation(fields: [location_id], references: [id])

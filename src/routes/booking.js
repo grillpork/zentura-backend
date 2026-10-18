@@ -587,6 +587,7 @@ BookingRouter.patch("/:id/status", async (req, res) => {
             } else if (status === "CANCELLED") {
                 await deductBookingPointsOnCancel(tx, id);
             }
+            if (status !== "CONFIRMED") await tx.bookingSeat.deleteMany({ where: { booking_id: id } });
 
             return b;
         });
@@ -705,6 +706,7 @@ BookingRouter.post("/:code/cancel", async (req, res) => {
                 include: { package: true, travelers: true, booking_addons: true }
             });
             await deductBookingPointsOnCancel(tx, booking.id);
+            await tx.bookingSeat.deleteMany({ where: { booking_id: booking.id } });
             return b;
         });
 

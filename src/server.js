@@ -12,6 +12,7 @@ const packageRoutes = require("./routes/package.js");
 const BookingRouter = require("./routes/booking.js");
 const collabRoutes = require("./routes/collab.js");
 const BusRouter = require("./routes/bus.js");
+const SeatingRouter = require("./routes/seating.js");
 const SupplierRouter = require("./routes/supplier.js");
 
 const { employeeRoute } = require("./routes/employee.js");
@@ -58,6 +59,7 @@ server.use("/api/collab", collabRoutes);
 server.use("/collab", collabRoutes);
 server.use("/api/bus", BusRouter);
 server.use("/bus", BusRouter);
+server.use("/api/seating", SeatingRouter);
 server.use("/api/supplier", SupplierRouter);
 
 server.use("/api/collaps", collabRoutes);
