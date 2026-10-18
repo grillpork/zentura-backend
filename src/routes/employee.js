@@ -3,10 +3,24 @@ const { prisma } = require("../config/db.js");
 
 const employeeRoute = Router();
 
-// GET all employees
+// GET all employees (ซ่อนบัญชี role suppler ออกจากหน้ารายการพนักงานทั่วไป)
 employeeRoute.get("/employee", async (req, res) => {
   try {
+    const { role, only_supplier, include_supplier } = req.query;
+    let where = {};
+
+    if (only_supplier === "true" || role === "suppler" || role === "supplier") {
+      where = { Role: { name: "suppler" } };
+    } else if (include_supplier !== "true") {
+      where = {
+        Role: {
+          name: { not: "suppler" },
+        },
+      };
+    }
+
     const list = await prisma.emp.findMany({
+      where,
       include: {
         Role: {
           select: { id: true, name: true },
@@ -28,6 +42,7 @@ employeeRoute.get("/employee", async (req, res) => {
             },
           },
         },
+        partner: { select: { id: true, name: true } },
       },
       orderBy: { id: "asc" },
     });
@@ -58,6 +73,8 @@ employeeRoute.get("/employee", async (req, res) => {
         roleId: emp.roleId,
         role: emp.Role ? emp.Role.name : "ไม่ระบุ",
         position: emp.Role ? emp.Role.name : "ไม่ระบุ",
+        partner_id: emp.partner_id,
+        partner_name: emp.partner?.name || null,
         status: emp.status || "ใช้งาน",
         isPasswordSet: emp.isPasswordSet ?? 0,
         createdAt: emp.createdAt,
@@ -188,6 +205,7 @@ employeeRoute.post("/employee", async (req, res) => {
         lineId: lineId ? lineId.trim() : null,
         age: age ? parseInt(age, 10) : null,
         roleId: assignedRoleId,
+        partner_id: parseInt(req.body.partner_id) || null,
       },
       include: { Role: {
           select: { id: true, name: true },
@@ -271,6 +289,10 @@ employeeRoute.put("/employee/:id", async (req, res) => {
         lineId: lineId !== undefined ? (lineId ? lineId.trim() : null) : existing.lineId,
         age: age !== undefined ? (age ? parseInt(age, 10) : null) : existing.age,
         roleId: assignedRoleId,
+        partner_id:
+          req.body.partner_id !== undefined
+            ? parseInt(req.body.partner_id) || null
+            : existing.partner_id,
         updatedAt: new Date(Date.now() + 7 * 3600 * 1000),
       },
       include: { Role: {
@@ -390,10 +412,16 @@ employeeRoute.post("/employee/generate-mock", async (req, res) => {
   }
 });
 
-// GET all roles
+// GET all roles (ซ่อน role suppler ออกจากตัวเลือกตำแหน่งพนักงานทั่วไป)
 employeeRoute.get("/roles", async (req, res) => {
   try {
+    const { include_supplier } = req.query;
+    const where = include_supplier === "true"
+      ? {}
+      : { name: { not: "suppler" } };
+
     const roles = await prisma.role.findMany({
+      where,
       orderBy: { id: "asc" },
     });
     return res.json({ success: true, data: roles });
@@ -410,7 +438,13 @@ employeeRoute.get("/roles", async (req, res) => {
 // Alias for /role
 employeeRoute.get("/role", async (req, res) => {
   try {
+    const { include_supplier } = req.query;
+    const where = include_supplier === "true"
+      ? {}
+      : { name: { not: "suppler" } };
+
     const roles = await prisma.role.findMany({
+      where,
       orderBy: { id: "asc" },
     });
     return res.json({ success: true, data: roles });
@@ -455,6 +489,10 @@ const handleEmployeeLogin = async (req, res) => {
 
     if (emp.password !== password) {
       return res.status(401).json({ success: false, message: "อีเมล์หรือรหัสผ่านไม่ถูกต้อง" });
+    }
+
+    if (emp.Role?.name?.toLowerCase() === "suppler") {
+      return res.status(403).json({ success: false, message: "บัญชี Supplier ใช้งานได้ที่หน้า /supplier/login เท่านั้น" });
     }
 
     const user = {

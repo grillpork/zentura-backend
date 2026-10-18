@@ -8,7 +8,7 @@ PartnerRouter.get('/', async(req, res) => {
     try{
         const data = await prisma.partner.findMany({
         orderBy: {id: "asc"},
-        include: {pt_type: true}
+        include: {pt_type: true, location: { select: { id: true, name: true } }}
         })
         return res.status(200).json(data)
     }catch(error){
@@ -25,7 +25,7 @@ PartnerRouter.get('/:id', async(req, res) => {
         }
         const data = await prisma.partner.findUnique({
             where: {id},
-            include: {pt_type: true}
+            include: {pt_type: true, location: { select: { id: true, name: true } }}
         })
         if(!data){
             return res.status(404).json({ message: "ไม่พบข้อมูลพาร์ทเนอร์" })
@@ -79,7 +79,8 @@ PartnerRouter.post('/', async(req, res) => {
             phone: phone.trim(),
             email: email.trim(),
             address: address ? address.trim() : null,
-            pt_type_id: parsedTypeId
+            pt_type_id: parsedTypeId,
+            location_id: parseInt(req.body.location_id) || null
         };
 
         const data = await prisma.partner.create({
@@ -143,7 +144,8 @@ PartnerRouter.put('/:id', async (req, res) => {
             phone: phone.trim(),
             email: email.trim(),
             address: address ? address.trim() : null,
-            pt_type_id: parsedTypeId
+            pt_type_id: parsedTypeId,
+            location_id: parseInt(req.body.location_id) || null
         };
 
         const data = await prisma.partner.update({

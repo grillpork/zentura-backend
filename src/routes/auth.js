@@ -140,6 +140,10 @@ router.post('/login', async (req, res) => {
                 return res.status(401).json({ success: false, message: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' });
             }
 
+            if (emp.Role?.name?.toLowerCase() === 'suppler') {
+                return res.status(403).json({ success: false, message: 'บัญชี Supplier ใช้งานได้ที่หน้า /supplier/login เท่านั้น' });
+            }
+
             const token = jwt.sign(
                 { 
                     id: emp.id, 
@@ -198,6 +202,10 @@ router.post('/set-password', async (req, res) => {
 
         if (!emp) {
             return res.status(404).json({ success: false, message: 'ไม่พบข้อมูลพนักงาน' });
+        }
+
+        if (emp.Role?.name?.toLowerCase() === 'suppler') {
+            return res.status(403).json({ success: false, message: 'บัญชี Supplier ใช้งานได้ที่หน้า /supplier/login เท่านั้น' });
         }
 
         if (currentPassword && emp.password !== currentPassword) {
