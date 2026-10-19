@@ -17,11 +17,26 @@ const partnerInclude = {
 
 const isSupplier = (emp) => emp?.Role?.name?.toLowerCase() === SUPPLIER_ROLE;
 
+const findSupplierByEmail = async (email) => {
+  const normalized = email.trim();
+  const byPartner = await prisma.emp.findFirst({
+    where: {
+      Role: { name: { equals: SUPPLIER_ROLE, mode: "insensitive" } },
+      partner: { email: { equals: normalized, mode: "insensitive" } },
+    },
+    include: partnerInclude,
+  });
+  return byPartner || prisma.emp.findFirst({
+    where: { email: { equals: normalized, mode: "insensitive" } },
+    include: partnerInclude,
+  });
+};
+
 const publicUser = (emp) => ({
   id: emp.id,
-  name: emp.name,
-  email: emp.email,
-  phone: emp.phone || "",
+  name: emp.partner?.name || emp.name,
+  email: emp.partner?.email || emp.email,
+  phone: emp.partner?.phone || emp.phone || "",
   status: emp.status || "ใช้งาน",
   isPasswordSet: emp.isPasswordSet ?? 0,
   partner_id: emp.partner_id,
@@ -78,10 +93,7 @@ SupplierRouter.post("/login", async (req, res) => {
       return res.status(400).json({ success: false, message: "กรุณากรอกอีเมลและรหัสผ่าน" });
     }
 
-    const emp = await prisma.emp.findFirst({
-      where: { email: { equals: email.trim(), mode: "insensitive" } },
-      include: partnerInclude,
-    });
+    const emp = await findSupplierByEmail(email);
 
     const invalid = () =>
       res.status(401).json({ success: false, message: "อีเมลหรือรหัสผ่านไม่ถูกต้อง" });
@@ -116,10 +128,7 @@ SupplierRouter.post("/set-password", async (req, res) => {
       return res.status(400).json({ success: false, message: "รหัสผ่านใหม่ต้องมีความยาวอย่างน้อย 6 ตัวอักษร" });
     }
 
-    const emp = await prisma.emp.findFirst({
-      where: { email: { equals: (email || "").trim(), mode: "insensitive" } },
-      include: partnerInclude,
-    });
+    const emp = await findSupplierByEmail(email || "");
     if (!emp || !isSupplier(emp) || !(emp.password === currentPassword || await bcrypt.compare(currentPassword || "", emp.password))) {
       return res.status(400).json({ success: false, message: "ข้อมูลไม่ถูกต้อง" });
     }
@@ -285,9 +294,9 @@ SupplierRouter.get("/admin/accounts", backofficeOnly, async (req, res) => {
 
     const data = list.map((emp) => ({
       id: emp.id,
-      name: emp.name,
-      email: emp.email,
-      phone: emp.phone || "",
+      name: emp.partner?.name || emp.name,
+      email: emp.partner?.email || emp.email,
+      phone: emp.partner?.phone || emp.phone || "",
       lineId: emp.lineId || "",
       status: emp.status || "ใช้งาน",
       isPasswordSet: emp.isPasswordSet ?? 0,
@@ -424,6 +433,66 @@ SupplierRouter.delete("/admin/accounts/:id", backofficeOnly, async (req, res) =>
   } catch (error) {
     console.error("DELETE /admin/accounts error:", error);
     return res.status(500).json({ success: false, message: "ไม่สามารถลบบัญชี Supplier ได้" });
+  }
+});
+
+// เปิดใช้งานร้านจากข้อมูลพาร์ทเนอร์เดิม หรือกำหนดรหัสใหม่ให้บัญชีร้านเดิม
+SupplierRouter.put("/admin/partners/:id/access", backofficeOnly, async (req, res) => {
+  try {
+    const partnerId = Number(req.params.id);
+    const { password } = req.body;
+    if (!Number.isInteger(partnerId) || partnerId < 1 || typeof password !== "string" || password.length < 6) {
+      return res.status(400).json({ success: false, message: "กรุณาระบุพาร์ทเนอร์และรหัสผ่านอย่างน้อย 6 ตัวอักษร" });
+    }
+
+    const partner = await prisma.partner.findUnique({
+      where: { id: partnerId },
+      include: { Emp: { include: { Role: true } }, location: true },
+    });
+    if (!partner) return res.status(404).json({ success: false, message: "ไม่พบพาร์ทเนอร์" });
+    if (!partner.location_id) {
+      return res.status(400).json({ success: false, message: "กรุณาผูก Location ในข้อมูลพาร์ทเนอร์ก่อน" });
+    }
+
+    const accounts = partner.Emp.filter(isSupplier);
+    if (accounts.length > 1) {
+      return res.status(409).json({ success: false, message: "ร้านนี้มีบัญชี Supplier หลายบัญชี กรุณาจัดการที่หน้าบัญชี Supplier" });
+    }
+    const account = accounts[0];
+    const email = partner.email.trim().toLowerCase();
+    const emailOwner = await prisma.emp.findFirst({
+      where: { email: { equals: email, mode: "insensitive" }, ...(account ? { id: { not: account.id } } : {}) },
+      select: { id: true },
+    });
+    if (emailOwner) {
+      return res.status(409).json({ success: false, message: "อีเมลของพาร์ทเนอร์ถูกใช้โดยบัญชีอื่นแล้ว" });
+    }
+
+    const data = {
+      name: partner.name,
+      email,
+      phone: partner.phone,
+      password: await bcrypt.hash(password, 10),
+      isPasswordSet: 1,
+    };
+    let saved;
+    if (account) {
+      saved = await prisma.emp.update({ where: { id: account.id }, data, include: partnerInclude });
+    } else {
+      let role = await prisma.role.findFirst({ where: { name: { equals: SUPPLIER_ROLE, mode: "insensitive" } } });
+      if (!role) role = await prisma.role.create({ data: { name: SUPPLIER_ROLE, access: "Supplier and partner access" } });
+      saved = await prisma.emp.create({
+        data: { ...data, roleId: role.id, partner_id: partner.id, status: "ใช้งาน" },
+        include: partnerInclude,
+      });
+    }
+    return res.json({ success: true, message: "ตั้งรหัสผ่าน Supplier สำเร็จ", data: publicUser(saved) });
+  } catch (error) {
+    if (error.code === "P2002") {
+      return res.status(409).json({ success: false, message: "อีเมลของพาร์ทเนอร์ถูกใช้โดยบัญชีอื่นแล้ว" });
+    }
+    console.error("SET PARTNER SUPPLIER ACCESS ERROR:", error);
+    return res.status(500).json({ success: false, message: "ไม่สามารถตั้งรหัสผ่าน Supplier ได้" });
   }
 });
 
