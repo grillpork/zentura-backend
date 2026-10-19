@@ -450,10 +450,6 @@ SupplierRouter.put("/admin/partners/:id/access", backofficeOnly, async (req, res
       include: { Emp: { include: { Role: true } }, location: true },
     });
     if (!partner) return res.status(404).json({ success: false, message: "ไม่พบพาร์ทเนอร์" });
-    if (!partner.location_id) {
-      return res.status(400).json({ success: false, message: "กรุณาผูก Location ในข้อมูลพาร์ทเนอร์ก่อน" });
-    }
-
     const accounts = partner.Emp.filter(isSupplier);
     if (accounts.length > 1) {
       return res.status(409).json({ success: false, message: "ร้านนี้มีบัญชี Supplier หลายบัญชี กรุณาจัดการที่หน้าบัญชี Supplier" });

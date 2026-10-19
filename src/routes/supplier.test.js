@@ -53,10 +53,11 @@ test("setting store access reuses its supplier account and partner identity", as
 
     partner.location_id = null;
     updated = null;
-    const invalid = { status: response.status, json: response.json };
-    await handler({ params: { id: "3" }, body: { password: "new-secret" } }, invalid);
-    assert.equal(invalid.statusCode, 400);
-    assert.equal(updated, null);
+    partner.location = null;
+    const withoutLocation = { status: response.status, json: response.json };
+    await handler({ params: { id: "3" }, body: { password: "new-secret" } }, withoutLocation);
+    assert.equal(withoutLocation.body.success, true);
+    assert.deepEqual(updated.where, { id: existing.id });
 
     loginMode = true;
     const login = router.stack.find((layer) => layer.route?.path === "/login").route.stack.at(-1).handle;
