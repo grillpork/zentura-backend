@@ -1,0 +1,74 @@
+model InsurancePlan {
+  id              Int      @id @default(1)
+  insurer_name    String
+  plan_name       String
+  master_policy_no String?
+  premium_satang  Int
+  min_age         Int
+  max_age         Int
+  terms_url       String
+  active          Boolean  @default(false)
+  updatedAt       DateTime @updatedAt
+
+  @@map("insurance_plan")
+}
+
+model InsuranceEnrollment {
+  id                  Int      @id @default(autoincrement())
+  booking_id          Int
+  traveler_id         Int      @unique
+  insurer_name        String
+  plan_name           String
+  master_policy_no    String?
+  terms_url           String
+  premium_satang      Int
+  coverage_start      DateTime @db.Date
+  coverage_end        DateTime @db.Date
+  status              String   @default("AWAITING_PAYMENT")
+  certificate_no      String?
+  failure_reason       String?
+  issued_at           DateTime?
+  updatedAt           DateTime @updatedAt
+  booking             Booking @relation(fields: [booking_id], references: [id], onDelete: Cascade)
+  traveler            BookingTraveler @relation(fields: [traveler_id], references: [id], onDelete: Cascade)
+  claims              InsuranceClaim[]
+  events              InsuranceEvent[]
+
+  @@index([booking_id])
+  @@map("insurance_enrollments")
+}
+
+model InsuranceClaim {
+  id                    Int      @id @default(autoincrement())
+  enrollment_id         Int
+  category              String
+  occurred_at           DateTime
+  description           String
+  claimed_amount_satang Int?
+  status                String   @default("REPORTED")
+  insurer_claim_no      String?
+  insurer_note          String?
+  reported_by_emp_id    Int
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  enrollment            InsuranceEnrollment @relation(fields: [enrollment_id], references: [id], onDelete: Cascade)
+  events                InsuranceEvent[]
+
+  @@index([enrollment_id])
+  @@map("insurance_claims")
+}
+
+model InsuranceEvent {
+  id             Int      @id @default(autoincrement())
+  enrollment_id  Int
+  claim_id       Int?
+  action         String
+  detail         String?
+  actor_emp_id   Int?
+  createdAt      DateTime @default(now())
+  enrollment     InsuranceEnrollment @relation(fields: [enrollment_id], references: [id], onDelete: Cascade)
+  claim          InsuranceClaim? @relation(fields: [claim_id], references: [id], onDelete: Cascade)
+
+  @@index([enrollment_id, createdAt])
+  @@map("insurance_events")
+}

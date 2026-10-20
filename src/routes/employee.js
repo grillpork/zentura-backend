@@ -1,5 +1,7 @@
 const { Router } = require("express");
 const { prisma } = require("../config/db.js");
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
 
 const employeeRoute = Router();
 
@@ -119,7 +121,7 @@ employeeRoute.get("/employee/:id", async (req, res) => {
         phone: emp.phone || "",
         lineId: emp.lineId || "",
         age: emp.age || null,
-        roleId: emp.RoleId,
+        roleId: emp.roleId,
         position: emp.Role ? emp.Role.name : "ไม่ระบุ",
         status: emp.status || "ใช้งาน",
         isPasswordSet: emp.isPasswordSet ?? 0,
@@ -487,7 +489,7 @@ const handleEmployeeLogin = async (req, res) => {
       return res.status(403).json({ success: false, message: "บัญชีพนักงานนี้ถูกปิดใช้งาน กรุณาติดต่อผู้ดูแลระบบ" });
     }
 
-    if (emp.password !== password) {
+    if (emp.password !== password && !(await bcrypt.compare(password, emp.password).catch(() => false))) {
       return res.status(401).json({ success: false, message: "อีเมล์หรือรหัสผ่านไม่ถูกต้อง" });
     }
 
@@ -500,17 +502,18 @@ const handleEmployeeLogin = async (req, res) => {
       name: emp.name,
       email: emp.email,
       phone: emp.phone || "",
-      roleId: emp.RoleId,
+      roleId: emp.roleId,
       position: emp.Role ? emp.Role.name : "ไม่ระบุ",
       status: emp.status || "ใช้งาน",
       isPasswordSet: emp.isPasswordSet ?? 0,
+      isEmployee: true,
     };
 
     return res.json({
       success: true,
       message: "เข้าสู่ระบบสำเร็จ",
       user,
-      token: `emp_token_${emp.id}_${Date.now()}`,
+      token: jwt.sign({ id: emp.id, email: emp.email, isEmployee: true, portal: "backoffice" }, process.env.JWT_SECRET || "fallback_secret_key_123", { expiresIn: "1d" }),
     });
   } catch (error) {
     console.error("POST /auth/login error:", error);
@@ -543,14 +546,14 @@ const handleSetPassword = async (req, res) => {
       return res.status(404).json({ success: false, message: "ไม่พบข้อมูลพนักงาน" });
     }
 
-    if (currentPassword && emp.password !== currentPassword) {
+    if (!currentPassword || (emp.password !== currentPassword && !(await bcrypt.compare(currentPassword, emp.password).catch(() => false)))) {
       return res.status(400).json({ success: false, message: "รหัสผ่านปัจจุบันไม่ถูกต้อง" });
     }
 
     const updated = await prisma.emp.update({
       where: { id: emp.id },
       data: {
-        password: newPassword,
+        password: await bcrypt.hash(newPassword, 10),
         isPasswordSet: 1,
         updatedAt: new Date(Date.now() + 7 * 3600 * 1000),
       },
@@ -567,13 +570,14 @@ const handleSetPassword = async (req, res) => {
       position: updated.Role ? updated.Role.name : "ไม่ระบุ",
       status: updated.status || "ใช้งาน",
       isPasswordSet: 1,
+      isEmployee: true,
     };
 
     return res.json({
       success: true,
       message: "ตั้งรหัสผ่านใหม่เรียบร้อยแล้ว",
       user,
-      token: `emp_token_${updated.id}_${Date.now()}`,
+      token: jwt.sign({ id: updated.id, email: updated.email, isEmployee: true, portal: "backoffice" }, process.env.JWT_SECRET || "fallback_secret_key_123", { expiresIn: "1d" }),
     });
   } catch (error) {
     console.error("POST /auth/set-password error:", error);

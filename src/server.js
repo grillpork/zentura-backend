@@ -1,5 +1,6 @@
 // Zentura Backend
 require("dotenv").config();
+if (!process.env.JWT_SECRET) throw new Error("JWT_SECRET is required to protect backoffice and insurance data");
 const express = require("express");
 const cors = require("cors");
 const { helloRoute } = require("./routes/hello.js");
@@ -15,6 +16,7 @@ const BusRouter = require("./routes/bus.js");
 const SeatingRouter = require("./routes/seating.js");
 const SupplierRouter = require("./routes/supplier.js");
 const guideRoutes = require("./routes/guide.js");
+const insuranceRoutes = require("./routes/insurance.js");
 
 const { employeeRoute } = require("./routes/employee.js");
 const { positionRoute } = require("./routes/position.js");
@@ -25,6 +27,7 @@ const PORT = process.env.PORT || 4000;
 
 // Middlewares
 server.use(cors());
+server.post("/api/booking/stripe-webhook", express.raw({ type: "application/json" }), BookingRouter.stripeWebhook);
 server.use(express.json());
 server.use(express.urlencoded({ extended: true }));
 
@@ -56,6 +59,7 @@ server.use("/api/packages", packageRoutes);
 server.use("/packages", packageRoutes);
 server.use("/api/booking", BookingRouter);
 server.use("/booking", BookingRouter);
+server.use("/api/insurance", insuranceRoutes);
 server.use("/api/collab", collabRoutes);
 server.use("/collab", collabRoutes);
 server.use("/api/bus", BusRouter);

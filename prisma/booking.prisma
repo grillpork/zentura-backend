@@ -13,6 +13,8 @@ model Booking {
   special_request   String?
   package_price     Float
   addon_total       Float              @default(0)
+  insurance_total_satang Int            @default(0)
+  insurance_terms_accepted_at DateTime?
   total_price       Float
   status            String             @default("PENDING_PAYMENT")
   createdAt         DateTime           @default(dbgenerated("timezone('Asia/Bangkok'::text, now())"))
@@ -28,6 +30,7 @@ model Booking {
   payments          Payment[]
   pointTransactions PointTransaction[]
   seats             BookingSeat[]
+  insuranceEnrollments InsuranceEnrollment[]
 
   @@map("bookings")
 }
@@ -39,7 +42,10 @@ model BookingTraveler {
   full_name           String
   id_card_or_passport String?
   phone               String?
+  passenger_type      String  @default("adult")
+  date_of_birth       DateTime? @db.Date
   booking             Booking @relation(fields: [booking_id], references: [id], onDelete: Cascade)
+  insuranceEnrollment InsuranceEnrollment?
 
   @@map("booking_travelers")
 }
@@ -78,6 +84,7 @@ model Payment {
   booking_id     Int
   amount         Float
   payment_method String    @default("TRANSFER")
+  stripe_session_id String? @unique
   slip_url       String?
   paid_at        DateTime?
   status         String    @default("PENDING")

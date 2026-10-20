@@ -6,6 +6,14 @@ const { authMiddleware } = require('../middlewares/authMiddleware.js');
 
 const router = express.Router();
 
+// Customer and employee IDs are generated in separate tables and can be equal.
+// Never infer the account type by whichever table happens to contain the ID first.
+const accountType = (claims) => {
+    if (claims?.isEmployee === true && claims.portal === 'backoffice') return 'employee';
+    if (claims?.isEmployee !== true && !claims?.portal) return 'customer';
+    return null;
+};
+
 router.post('/register', async (req, res) => {
     try {
         const { email, password, name } = req.body;
@@ -52,14 +60,14 @@ router.post('/register', async (req, res) => {
 
 router.post('/login', async (req, res) => {
     try {
-        const { email, password } = req.body;
+        const { email, password, isEmployee } = req.body;
 
         if (!email || !password) {
             return res.status(400).json({ success: false, message: 'กรุณากรอกอีเมลและรหัสผ่านให้ครบถ้วน' });
         }
 
         // 1. Check Customer User first
-        const user = await prisma.user.findUnique({
+        const user = isEmployee === true ? null : await prisma.user.findUnique({
             where: { email },
             include: { role: true }
         });
@@ -148,9 +156,10 @@ router.post('/login', async (req, res) => {
                 { 
                     id: emp.id, 
                     email: emp.email, 
-                    roleId: emp.RoleId,
+                    roleId: emp.roleId,
                     role: emp.Role?.name || 'Admin',
-                    isEmployee: true
+                    isEmployee: true,
+                    portal: 'backoffice'
                 },
                 process.env.JWT_SECRET || 'fallback_secret_key_123',
                 { expiresIn: '1d' }
@@ -165,11 +174,12 @@ router.post('/login', async (req, res) => {
                     email: emp.email,
                     name: emp.name,
                     phone: emp.phone || '',
-                    roleId: emp.RoleId,
+                    roleId: emp.roleId,
                     role: emp.Role?.name || 'Admin',
                     position: emp.Role?.name || 'Admin',
                     status: emp.status || 'ใช้งาน',
                     isPasswordSet: emp.isPasswordSet ?? 0,
+                    isEmployee: true,
                 }
             });
         }
@@ -208,14 +218,17 @@ router.post('/set-password', async (req, res) => {
             return res.status(403).json({ success: false, message: 'บัญชี Supplier ใช้งานได้ที่หน้า /supplier/login เท่านั้น' });
         }
 
-        if (currentPassword && emp.password !== currentPassword) {
+        const matchesCurrentPassword = currentPassword && (
+            emp.password === currentPassword || await bcrypt.compare(currentPassword, emp.password).catch(() => false)
+        );
+        if (!matchesCurrentPassword) {
             return res.status(400).json({ success: false, message: 'รหัสผ่านปัจจุบันไม่ถูกต้อง' });
         }
 
         const updated = await prisma.emp.update({
             where: { id: emp.id },
             data: {
-                password: newPassword,
+                password: await bcrypt.hash(newPassword, 10),
                 isPasswordSet: 1,
             },
             include: { Role: { select: { id: true, name: true } },
@@ -228,7 +241,8 @@ router.post('/set-password', async (req, res) => {
                 email: updated.email, 
                 roleId: updated.roleId,
                 role: updated.Role?.name || 'Admin',
-                isEmployee: true
+                isEmployee: true,
+                portal: 'backoffice'
             },
             process.env.JWT_SECRET || 'fallback_secret_key_123',
             { expiresIn: '1d' }
@@ -246,6 +260,7 @@ router.post('/set-password', async (req, res) => {
                 position: updated.Role ? updated.Role.name : 'ไม่ระบุ',
                 status: updated.status || 'ใช้งาน',
                 isPasswordSet: 1,
+                isEmployee: true,
             },
             token,
         });
@@ -257,7 +272,9 @@ router.post('/set-password', async (req, res) => {
 
 router.get('/me', authMiddleware, async (req, res) => {
     try {
-        const user = await prisma.user.findUnique({
+        const type = accountType(req.user);
+        if (!type) return res.status(403).json({ message: 'บัญชีนี้ไม่มีสิทธิ์เข้าถึงโปรไฟล์' });
+        const user = type === 'customer' ? await prisma.user.findUnique({
             where: { id: req.user.id },
             select: { 
                 id: true, 
@@ -274,19 +291,19 @@ router.get('/me', authMiddleware, async (req, res) => {
                     select: { bookings: true }
                 }
             }
-        });
+        }) : null;
 
-        if (user) {
+        if (user && user.email === req.user.email) {
             return res.status(200).json({ user });
         }
 
-        const emp = await prisma.emp.findUnique({
+        const emp = type === 'employee' ? await prisma.emp.findUnique({
             where: { id: req.user.id },
             include: { Role: { select: { name: true } }
             }
-        });
+        }) : null;
 
-        if (emp) {
+        if (emp && emp.email === req.user.email && emp.status !== 'ปิดใช้งาน') {
             return res.status(200).json({
                 user: {
                     id: emp.id,
@@ -295,11 +312,12 @@ router.get('/me', authMiddleware, async (req, res) => {
                     phone: emp.phone || '',
                     lineId: emp.lineId || '',
                     age: emp.age || null,
-                    roleId: emp.RoleId,
+                    roleId: emp.roleId,
                     role: emp.Role,
                     position: emp.Role?.name || 'Admin',
                     status: emp.status || 'ใช้งาน',
                     isPasswordSet: emp.isPasswordSet ?? 0,
+                    isEmployee: true,
                     createdAt: emp.createdAt
                 }
             });
@@ -317,9 +335,11 @@ router.put('/profile', authMiddleware, async (req, res) => {
     try {
         const { name, phone, lineId, age } = req.body;
         const userId = req.user.id;
+        const type = accountType(req.user);
+        if (!type) return res.status(403).json({ success: false, message: 'บัญชีนี้ไม่มีสิทธิ์แก้ไขโปรไฟล์' });
 
-        const user = await prisma.user.findUnique({ where: { id: userId } });
-        if (user) {
+        const user = type === 'customer' ? await prisma.user.findUnique({ where: { id: userId } }) : null;
+        if (user && user.email === req.user.email) {
             const updated = await prisma.user.update({
                 where: { id: userId },
                 data: {
@@ -346,8 +366,8 @@ router.put('/profile', authMiddleware, async (req, res) => {
             return res.status(200).json({ success: true, message: 'บันทึกข้อมูลโปรไฟล์เรียบร้อยแล้ว', user: updated });
         }
 
-        const emp = await prisma.emp.findUnique({ where: { id: userId } });
-        if (emp) {
+        const emp = type === 'employee' ? await prisma.emp.findUnique({ where: { id: userId } }) : null;
+        if (emp && emp.email === req.user.email && emp.status !== 'ปิดใช้งาน') {
             const updatedEmp = await prisma.emp.update({
                 where: { id: userId },
                 data: {
@@ -372,6 +392,7 @@ router.put('/profile', authMiddleware, async (req, res) => {
                     role: updatedEmp.Role,
                     position: updatedEmp.Role?.name || 'Admin',
                     status: updatedEmp.status || 'ใช้งาน',
+                    isEmployee: true,
                 }
             });
         }
@@ -388,6 +409,8 @@ router.post('/change-password', authMiddleware, async (req, res) => {
     try {
         const { currentPassword, newPassword } = req.body;
         const userId = req.user.id;
+        const type = accountType(req.user);
+        if (!type) return res.status(403).json({ success: false, message: 'บัญชีนี้ไม่มีสิทธิ์เปลี่ยนรหัสผ่าน' });
 
         if (!currentPassword || !newPassword) {
             return res.status(400).json({ success: false, message: 'กรุณากรอกรหัสผ่านปัจจุบันและรหัสผ่านใหม่' });
@@ -396,8 +419,8 @@ router.post('/change-password', authMiddleware, async (req, res) => {
             return res.status(400).json({ success: false, message: 'รหัสผ่านใหม่ต้องมีความยาวอย่างน้อย 6 ตัวอักษร' });
         }
 
-        const user = await prisma.user.findUnique({ where: { id: userId } });
-        if (user) {
+        const user = type === 'customer' ? await prisma.user.findUnique({ where: { id: userId } }) : null;
+        if (user && user.email === req.user.email) {
             let isMatch = false;
             try {
                 isMatch = await bcrypt.compare(currentPassword, user.password);
@@ -420,8 +443,8 @@ router.post('/change-password', authMiddleware, async (req, res) => {
             return res.status(200).json({ success: true, message: 'เปลี่ยนรหัสผ่านสำเร็จเรียบร้อยแล้ว' });
         }
 
-        const emp = await prisma.emp.findUnique({ where: { id: userId } });
-        if (emp) {
+        const emp = type === 'employee' ? await prisma.emp.findUnique({ where: { id: userId } }) : null;
+        if (emp && emp.email === req.user.email && emp.status !== 'ปิดใช้งาน') {
             let isMatch = emp.password === currentPassword;
             if (!isMatch) {
                 try {
@@ -434,7 +457,7 @@ router.post('/change-password', authMiddleware, async (req, res) => {
 
             await prisma.emp.update({
                 where: { id: userId },
-                data: { password: newPassword, isPasswordSet: 1 }
+                data: { password: await bcrypt.hash(newPassword, 10), isPasswordSet: 1 }
             });
             return res.status(200).json({ success: true, message: 'เปลี่ยนรหัสผ่านสำเร็จเรียบร้อยแล้ว' });
         }
@@ -473,6 +496,9 @@ router.get('/users/search', async (req, res) => {
 // GET /points/my-points (or /api/auth/points/my-points)
 router.get('/points/my-points', authMiddleware, async (req, res) => {
     try {
+        if (accountType(req.user) !== 'customer') {
+            return res.status(403).json({ success: false, message: 'แต้มสะสมสำหรับบัญชีลูกค้าเท่านั้น' });
+        }
         const userId = req.user.id;
         const user = await prisma.user.findUnique({
             where: { id: userId },
@@ -503,7 +529,7 @@ router.get('/points/my-points', authMiddleware, async (req, res) => {
             }
         });
 
-        if (!user) {
+        if (!user || user.email !== req.user.email) {
             return res.status(404).json({ success: false, message: 'ไม่พบข้อมูลผู้ใช้งาน' });
         }
 
