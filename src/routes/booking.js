@@ -143,6 +143,7 @@ BookingRouter.post("/", authMiddleware, async (req, res) => {
             insurance_plan_id,
             insurance_plan_updated_at,
             insurance_terms_acknowledged,
+            seat_assignments = [],
         } = req.body;
 
         // validate 
@@ -335,6 +336,33 @@ BookingRouter.post("/", authMiddleware, async (req, res) => {
               coverage_start: dateOnly(coverageStart),
               coverage_end: dateOnly(coverageEnd),
           })) });
+
+          if (Array.isArray(seat_assignments) && seat_assignments.length > 0) {
+            const validSeats = seat_assignments
+              .filter(s => s && s.bus_id && s.seat_code)
+              .map((s, idx) => ({
+                booking_id: booking.id,
+                passenger_index: Number.isInteger(Number(s.passenger_index)) ? Number(s.passenger_index) : idx,
+                bus_id: Number(s.bus_id),
+                travel_date: dateOnly(finalTravelDate),
+                seat_code: String(s.seat_code).trim().toLowerCase(),
+              }));
+
+            const seenPassengers = new Set();
+            const uniqueSeats = [];
+            for (const item of validSeats) {
+              if (!seenPassengers.has(item.passenger_index)) {
+                seenPassengers.add(item.passenger_index);
+                uniqueSeats.push(item);
+              }
+            }
+
+            if (uniqueSeats.length > 0) {
+              await tx.bookingSeat.createMany({
+                data: uniqueSeats,
+              });
+            }
+          }
           return booking;
         });
         return res.status(201).json({
@@ -344,6 +372,9 @@ BookingRouter.post("/", authMiddleware, async (req, res) => {
         });
     } catch (error) {
         console.error("CREATE BOOKING ERROR:", error);
+        if (error.code === "P2002" || error.code === "P2034") {
+            return res.status(409).json({ message: "ที่นั่งบางที่นั่งที่เลือกมีผู้จองแล้ว กรุณาเลือกที่นั่งใหม่" });
+        }
         return res.status(500).json({ message: "เกิดข้อผิดพลาดจากเซิร์ฟเวอร์", error: error.message });
     }
 });

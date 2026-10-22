@@ -175,7 +175,7 @@ router.get("/:id", async (req, res) => {
           },
           orderBy: { id: "asc" },
         },
-        packageBuses: { select: { bus_id: true } },
+        packageBuses: { include: { bus: true } },
         bookingCollaps: {
           include: {
             user: {
@@ -193,6 +193,78 @@ router.get("/:id", async (req, res) => {
     if (!data) return res.status(404).json({ message: "Package not found" });
     return res.status(200).json(data);
   } catch (error) {
+    return res.status(500).json({ message: "Server error", error: error.message });
+  }
+});
+
+// GET /api/packages/:id/buses?travel_date=YYYY-MM-DD
+// ดึงข้อมูลรถบัสและที่นั่งที่ว่าง/จองแล้วสำหรับแพ็กเกจนี้
+router.get("/:id/buses", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid package id" });
+
+    const pkg = await prisma.package.findUnique({
+      where: { id },
+      include: {
+        packageBuses: {
+          include: { bus: true },
+        },
+        dayplans: { orderBy: { day_num: "asc" } },
+      },
+    });
+    if (!pkg) return res.status(404).json({ message: "Package not found" });
+
+    let buses = (pkg.packageBuses || [])
+      .map((pb) => pb.bus)
+      .filter((b) => b && b.status === "ACTIVE");
+
+    if (buses.length === 0) {
+      buses = await prisma.bus.findMany({
+        where: { status: "ACTIVE" },
+        orderBy: { id: "asc" },
+      });
+    }
+
+    const { seatList } = require("../lib/seats.js");
+    const { travelDay } = require("../lib/seating.js");
+
+    const travelDateStr = req.query.travel_date || pkg.start_date || pkg.dayplans?.[0]?.dt;
+    let taken = [];
+
+    if (travelDateStr && buses.length > 0) {
+      try {
+        const tDate = travelDay(travelDateStr);
+        taken = await prisma.bookingSeat.findMany({
+          where: {
+            bus_id: { in: buses.map((b) => b.id) },
+            travel_date: tDate,
+          },
+          select: {
+            bus_id: true,
+            seat_code: true,
+            passenger_index: true,
+          },
+        });
+      } catch (e) {
+        console.error("travelDay error in /:id/buses:", e);
+      }
+    }
+
+    return res.json({
+      success: true,
+      buses: buses.map((b) => ({
+        id: b.id,
+        name: b.name,
+        plate: b.plate,
+        layout: b.layout,
+        seat_count: seatList(b.layout).length,
+        seats: seatList(b.layout),
+      })),
+      taken,
+    });
+  } catch (error) {
+    console.error("GET /packages/:id/buses error:", error);
     return res.status(500).json({ message: "Server error", error: error.message });
   }
 });
