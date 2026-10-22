@@ -1,5 +1,6 @@
 const { prisma } = require("../config/db.js");
 const express = require("express");
+const { dateOnly } = require("../services/insuranceRules.js");
 
 const router = express.Router();
 
@@ -32,11 +33,21 @@ const parseInsurancePlanId = (value) => {
   return id;
 };
 
-const verifyInsurancePlan = async (id) => {
-  if (id && !(await prisma.insurancePlan.findUnique({ where: { id }, select: { id: true } }))) {
+const verifyInsurancePlan = async (id, startDate, endDate) => {
+  if (!id) return;
+  const plan = await prisma.insurancePlan.findUnique({ where: { id }, select: { min_trip_days: true, max_trip_days: true } });
+  if (!plan) {
     const error = new Error("ไม่พบแผนประกันที่เลือก");
     error.isCustom = true;
     throw error;
+  }
+  if (startDate && endDate && plan.min_trip_days != null && plan.max_trip_days != null) {
+    const tripDays = Math.round((dateOnly(endDate) - dateOnly(startDate)) / 86400000) + 1;
+    if (tripDays < plan.min_trip_days || tripDays > plan.max_trip_days) {
+      const error = new Error(`แผนประกันนี้รองรับทริป ${plan.min_trip_days}–${plan.max_trip_days} วัน กรุณาเลือกแผนที่ตรงกับจำนวนวันเดินทาง`);
+      error.isCustom = true;
+      throw error;
+    }
   }
 };
 
@@ -292,7 +303,6 @@ router.post("/", async (req, res) => {
     const busIds = parseBusIds(bus_ids);
     const insurancePlanId = parseInsurancePlanId(insurance_plan_id);
     if (!insurancePlanId) return res.status(400).json({ message: "กรุณาเลือกแผนประกันหนึ่งแผนสำหรับแพ็กเกจ" });
-    await verifyInsurancePlan(insurancePlanId);
 
     const primaryPartnerId = partner_id ? parseInt(partner_id) : (Array.isArray(partner_ids) && partner_ids.length > 0 ? parseInt(partner_ids[0]) : null);
 
@@ -301,6 +311,7 @@ router.post("/", async (req, res) => {
 
     const calculatedStartDate = parseDate(start_date) || (firstDayDt ? parseDate(firstDayDt) : null);
     const calculatedEndDate = parseDate(end_date) || (lastDayDt ? parseDate(lastDayDt) : null);
+    await verifyInsurancePlan(insurancePlanId, calculatedStartDate, calculatedEndDate);
 
     // Determine cover image URL
     let coverImageUrl = image;
@@ -523,7 +534,6 @@ router.put("/:id", async (req, res) => {
     const busIds = parseBusIds(bus_ids);
     const insurancePlanId = parseInsurancePlanId(insurance_plan_id);
     if (insurancePlanId === null) return res.status(400).json({ message: "กรุณาเลือกแผนประกันหนึ่งแผนสำหรับแพ็กเกจ" });
-    await verifyInsurancePlan(insurancePlanId);
 
     const primaryPartnerId = partner_id ? parseInt(partner_id) : (Array.isArray(partner_ids) && partner_ids.length > 0 ? parseInt(partner_ids[0]) : null);
 
@@ -532,6 +542,7 @@ router.put("/:id", async (req, res) => {
 
     const calculatedStartDate = parseDate(start_date) || (firstDayDt ? parseDate(firstDayDt) : null);
     const calculatedEndDate = parseDate(end_date) || (lastDayDt ? parseDate(lastDayDt) : null);
+    await verifyInsurancePlan(insurancePlanId, calculatedStartDate, calculatedEndDate);
 
     const result = await prisma.$transaction(async (tx) => {
       // Update basic info & partner

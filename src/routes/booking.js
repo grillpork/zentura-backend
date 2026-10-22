@@ -214,6 +214,11 @@ BookingRouter.post("/", authMiddleware, async (req, res) => {
         if (Number.isNaN(coverageStart.getTime()) || Number.isNaN(coverageEnd.getTime()) || coverageEnd < coverageStart) {
             return res.status(400).json({ message: "วันเริ่มหรือสิ้นสุดทริปไม่ถูกต้อง" });
         }
+        const tripDays = Math.round((dateOnly(coverageEnd) - dateOnly(coverageStart)) / 86400000) + 1;
+        if (insuranceSelected && (plan.min_trip_days == null || plan.max_trip_days == null ||
+            tripDays < plan.min_trip_days || tripDays > plan.max_trip_days)) {
+            return res.status(409).json({ message: "แผนประกันที่เลือกไม่ครอบคลุมจำนวนวันของทริปนี้ กรุณาติดต่อเจ้าหน้าที่" });
+        }
         const normalizedTravelers = prepareTravelers(travelers, adults, children, coverageStart, plan);
         if (!normalizedTravelers) return res.status(400).json({ message: insuranceSelected
             ? "ตรวจสอบชื่อ เลขบัตร/Passport วันเกิด และช่วงอายุที่ประกันรับของผู้เดินทางทุกคน"

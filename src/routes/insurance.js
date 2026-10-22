@@ -18,7 +18,9 @@ router.get("/plan", async (_req, res, next) => {
     const pkg = await prisma.package.findUnique({ where: { id: packageId }, select: { insurance_plan_id: true } });
     if (!pkg) return fail(res, 404, "ไม่พบแพ็กเกจ");
     const plan = pkg.insurance_plan_id ? await prisma.insurancePlan.findUnique({ where: { id: pkg.insurance_plan_id } }) : null;
-    res.json({ success: true, data: plan?.active && !plan.is_demo ? plan : null });
+    // Show the package's selected plan even while it is a draft or DEMO.
+    // Booking creation still checks active && !is_demo before charging for it.
+    res.json({ success: true, data: plan });
   } catch (error) { next(error); }
 });
 
@@ -70,11 +72,18 @@ const planData = (body) => {
   const premium_satang = Number(body.premium_satang);
   const min_age = Number(body.min_age);
   const max_age = Number(body.max_age);
+  const min_trip_days = body.min_trip_days === "" || body.min_trip_days == null ? null : Number(body.min_trip_days);
+  const max_trip_days = body.max_trip_days === "" || body.max_trip_days == null ? null : Number(body.max_trip_days);
   if (!insurer_name || !plan_name || !/^https:\/\//i.test(terms_url) ||
       !Number.isSafeInteger(premium_satang) || premium_satang <= 0 ||
       !Number.isSafeInteger(min_age) || !Number.isSafeInteger(max_age) ||
-      min_age < 0 || max_age < min_age || max_age > 120) return null;
-  return { insurer_name, plan_name, terms_url, master_policy_no, premium_satang, min_age, max_age, active: body.active === true };
+      min_age < 0 || max_age < min_age || max_age > 120 ||
+      (min_trip_days === null) !== (max_trip_days === null) ||
+      (min_trip_days !== null && (!Number.isSafeInteger(min_trip_days) || !Number.isSafeInteger(max_trip_days) ||
+        min_trip_days < 1 || max_trip_days < min_trip_days)) ||
+      (body.active === true && min_trip_days === null)) return null;
+  return { insurer_name, plan_name, terms_url, master_policy_no, premium_satang, min_age, max_age,
+    min_trip_days, max_trip_days, active: body.active === true };
 };
 
 router.post("/admin/plans", async (req, res, next) => {
