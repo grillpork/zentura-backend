@@ -21,3 +21,9 @@ test("rejects mismatched counts, duplicate IDs, invalid dates, and ineligible ag
   assert.equal(prepareTravelers([{ ...adult, date_of_birth: "2000-02-30" }], 1, 0, trip, plan), null);
   assert.equal(prepareTravelers([{ ...adult, date_of_birth: "1950-10-19" }], 1, 0, trip, plan), null);
 });
+
+test("travelers who decline insurance still keep valid identity details without plan age limits", () => {
+  const olderTraveler = { ...adult, date_of_birth: "1950-10-19" };
+  assert.equal(prepareTravelers([olderTraveler], 1, 0, trip, null)?.length, 1);
+  assert.equal(prepareTravelers([{ ...olderTraveler, id_card_or_passport: "bad" }], 1, 0, trip, null), null);
+});

@@ -14,6 +14,7 @@ model Booking {
   package_price     Float
   addon_total       Float              @default(0)
   insurance_total_satang Int            @default(0)
+  insurance_opted_in Boolean?
   insurance_terms_accepted_at DateTime?
   total_price       Float
   status            String             @default("PENDING_PAYMENT")

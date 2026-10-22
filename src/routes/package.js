@@ -20,6 +20,26 @@ const parseBusIds = (value) => {
   return ids;
 };
 
+const parseInsurancePlanId = (value) => {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
+  const id = Number(value);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    const error = new Error("แผนประกันไม่ถูกต้อง");
+    error.isCustom = true;
+    throw error;
+  }
+  return id;
+};
+
+const verifyInsurancePlan = async (id) => {
+  if (id && !(await prisma.insurancePlan.findUnique({ where: { id }, select: { id: true } }))) {
+    const error = new Error("ไม่พบแผนประกันที่เลือก");
+    error.isCustom = true;
+    throw error;
+  }
+};
+
 const syncPackageBuses = async (tx, packageId, ids, previousIds = []) => {
   if (ids === null) return;
   const buses = await tx.bus.findMany({ where: { id: { in: ids } }, select: { id: true, status: true } });
@@ -196,8 +216,11 @@ function formatDateRange(start, end) {
 // Create new package
 router.post("/", async (req, res) => {
   try {
-    const { name, description, price, location_id, status, image, images, days, partner_id, partner_ids, addons, guides, bus_ids, booking_start_date, booking_end_date, start_date, end_date } = req.body;
+    const { name, description, price, location_id, status, image, images, days, partner_id, partner_ids, addons, guides, bus_ids, insurance_plan_id, booking_start_date, booking_end_date, start_date, end_date } = req.body;
     const busIds = parseBusIds(bus_ids);
+    const insurancePlanId = parseInsurancePlanId(insurance_plan_id);
+    if (!insurancePlanId) return res.status(400).json({ message: "กรุณาเลือกแผนประกันหนึ่งแผนสำหรับแพ็กเกจ" });
+    await verifyInsurancePlan(insurancePlanId);
 
     const primaryPartnerId = partner_id ? parseInt(partner_id) : (Array.isArray(partner_ids) && partner_ids.length > 0 ? parseInt(partner_ids[0]) : null);
 
@@ -226,6 +249,7 @@ router.post("/", async (req, res) => {
           price: parseFloat(price) || 0,
           location_id: parseInt(location_id) || null,
           partner_id: primaryPartnerId || null,
+          insurance_plan_id: insurancePlanId ?? null,
           status: status || "Draft",
           start_date: calculatedStartDate,
           end_date: calculatedEndDate,
@@ -423,8 +447,11 @@ router.post("/", async (req, res) => {
 router.put("/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const { name, description, price, location_id, status, image, images, days, partner_id, partner_ids, addons, guides, bus_ids, booking_start_date, booking_end_date, start_date, end_date } = req.body;
+    const { name, description, price, location_id, status, image, images, days, partner_id, partner_ids, addons, guides, bus_ids, insurance_plan_id, booking_start_date, booking_end_date, start_date, end_date } = req.body;
     const busIds = parseBusIds(bus_ids);
+    const insurancePlanId = parseInsurancePlanId(insurance_plan_id);
+    if (insurancePlanId === null) return res.status(400).json({ message: "กรุณาเลือกแผนประกันหนึ่งแผนสำหรับแพ็กเกจ" });
+    await verifyInsurancePlan(insurancePlanId);
 
     const primaryPartnerId = partner_id ? parseInt(partner_id) : (Array.isArray(partner_ids) && partner_ids.length > 0 ? parseInt(partner_ids[0]) : null);
 
@@ -444,6 +471,7 @@ router.put("/:id", async (req, res) => {
           price: parseFloat(price) || 0,
           location_id: parseInt(location_id) || null,
           partner_id: primaryPartnerId || null,
+          ...(insurancePlanId !== undefined && { insurance_plan_id: insurancePlanId }),
           status: status || "Draft",
           start_date: calculatedStartDate,
           end_date: calculatedEndDate,

@@ -21,7 +21,7 @@ function prepareTravelers(travelers, adults, children, startDate, plan) {
       : -1;
     if (full_name.length < 2 || !/^(\d{13}|[A-Z0-9]{6,12})$/.test(id_card_or_passport) ||
         ids.has(id_card_or_passport) || !date_of_birth || date_of_birth.toISOString().slice(0, 10) !== dateString ||
-        age < plan.min_age || age > plan.max_age) return null;
+        (plan && (age < plan.min_age || age > plan.max_age))) return null;
     ids.add(id_card_or_passport);
     result.push({
       title: String(input.title || "").trim() || null,

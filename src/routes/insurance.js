@@ -7,14 +7,18 @@ const { thaiDate } = require("../services/insuranceRules.js");
 const router = express.Router();
 const claimCategories = new Set(["ACCIDENT", "MEDICAL", "BAGGAGE", "TRIP_DELAY", "TRIP_CANCEL", "LIABILITY", "OTHER"]);
 const claimStatuses = new Set(["REPORTED", "SUBMITTED", "NEED_DOCUMENTS", "UNDER_REVIEW", "APPROVED", "REJECTED", "PAID", "CLOSED"]);
-const enrollmentStatuses = new Set(["PENDING_ISSUANCE", "ACTIVE", "ISSUANCE_FAILED", "CANCELLATION_REQUESTED", "CANCELLED"]);
+const enrollmentStatuses = new Set(["AWAITING_PAYMENT", "PENDING_ISSUANCE", "ACTIVE", "ISSUANCE_FAILED", "CANCELLATION_REQUESTED", "CANCELLED"]);
 
 const fail = (res, code, message) => res.status(code).json({ success: false, message });
 
 router.get("/plan", async (_req, res, next) => {
   try {
-    const plan = await prisma.insurancePlan.findUnique({ where: { id: 1 } });
-    res.json({ success: true, data: plan?.active ? plan : null });
+    const packageId = Number(_req.query.package_id);
+    if (!Number.isSafeInteger(packageId) || packageId <= 0) return fail(res, 400, "รหัสแพ็กเกจไม่ถูกต้อง");
+    const pkg = await prisma.package.findUnique({ where: { id: packageId }, select: { insurance_plan_id: true } });
+    if (!pkg) return fail(res, 404, "ไม่พบแพ็กเกจ");
+    const plan = pkg.insurance_plan_id ? await prisma.insurancePlan.findUnique({ where: { id: pkg.insurance_plan_id } }) : null;
+    res.json({ success: true, data: plan?.active && !plan.is_demo ? plan : null });
   } catch (error) { next(error); }
 });
 
@@ -38,6 +42,11 @@ router.get("/my/:code", authMiddleware, async (req, res, next) => {
 });
 
 router.use(...backofficeOnly);
+router.get("/plans", async (_req, res, next) => {
+  try {
+    res.json({ success: true, data: await prisma.insurancePlan.findMany({ orderBy: { id: "asc" } }) });
+  } catch (error) { next(error); }
+});
 router.use((req, res, next) => req.employee.Role?.name?.toLowerCase() === "admin"
   ? next() : fail(res, 403, "หน้านี้สำหรับผู้ดูแลระบบเท่านั้น"));
 
@@ -47,22 +56,58 @@ router.get("/admin/plan", async (_req, res, next) => {
   } catch (error) { next(error); }
 });
 
+router.get("/admin/plans", async (_req, res, next) => {
+  try {
+    res.json({ success: true, data: await prisma.insurancePlan.findMany({ orderBy: { id: "asc" } }) });
+  } catch (error) { next(error); }
+});
+
+const planData = (body) => {
+  const insurer_name = String(body.insurer_name || "").trim();
+  const plan_name = String(body.plan_name || "").trim();
+  const terms_url = String(body.terms_url || "").trim();
+  const master_policy_no = String(body.master_policy_no || "").trim() || null;
+  const premium_satang = Number(body.premium_satang);
+  const min_age = Number(body.min_age);
+  const max_age = Number(body.max_age);
+  if (!insurer_name || !plan_name || !/^https:\/\//i.test(terms_url) ||
+      !Number.isSafeInteger(premium_satang) || premium_satang <= 0 ||
+      !Number.isSafeInteger(min_age) || !Number.isSafeInteger(max_age) ||
+      min_age < 0 || max_age < min_age || max_age > 120) return null;
+  return { insurer_name, plan_name, terms_url, master_policy_no, premium_satang, min_age, max_age, active: body.active === true };
+};
+
+router.post("/admin/plans", async (req, res, next) => {
+  try {
+    const data = planData(req.body);
+    if (!data) return fail(res, 400, "กรอกบริษัท แผน ลิงก์เงื่อนไข HTTPS เบี้ย และช่วงอายุที่รับประกันให้ถูกต้อง");
+    const plan = await prisma.insurancePlan.create({ data });
+    res.status(201).json({ success: true, data: plan });
+  } catch (error) { next(error); }
+});
+
+router.put("/admin/plans/:id", async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id <= 0) return fail(res, 400, "รหัสแผนประกันไม่ถูกต้อง");
+    const data = planData(req.body);
+    if (!data) return fail(res, 400, "กรอกบริษัท แผน ลิงก์เงื่อนไข HTTPS เบี้ย และช่วงอายุที่รับประกันให้ถูกต้อง");
+    const current = await prisma.insurancePlan.findUnique({ where: { id } });
+    if (!current) return fail(res, 404, "ไม่พบแผนประกัน");
+    if (current.is_demo && data.active) return fail(res, 400, "แผนตัวอย่างเปิดขายไม่ได้ กรุณาสร้างแผนจากบริษัทประกันจริง");
+    const plan = await prisma.insurancePlan.update({ where: { id }, data });
+    res.json({ success: true, data: plan });
+  } catch (error) { next(error); }
+});
+
 router.put("/admin/plan", async (req, res, next) => {
   try {
-    const insurer_name = String(req.body.insurer_name || "").trim();
-    const plan_name = String(req.body.plan_name || "").trim();
-    const terms_url = String(req.body.terms_url || "").trim();
-    const master_policy_no = String(req.body.master_policy_no || "").trim() || null;
-    const premium_satang = Number(req.body.premium_satang);
-    const min_age = Number(req.body.min_age);
-    const max_age = Number(req.body.max_age);
-    if (!insurer_name || !plan_name || !/^https:\/\//i.test(terms_url) ||
-        !Number.isSafeInteger(premium_satang) || premium_satang <= 0 ||
-        !Number.isSafeInteger(min_age) || !Number.isSafeInteger(max_age) ||
-        min_age < 0 || max_age < min_age || max_age > 120) {
+    const data = planData(req.body);
+    if (!data) {
       return fail(res, 400, "กรอกบริษัท แผน ลิงก์เงื่อนไข HTTPS เบี้ย และช่วงอายุที่รับประกันให้ถูกต้อง");
     }
-    const data = { insurer_name, plan_name, terms_url, master_policy_no, premium_satang, min_age, max_age, active: req.body.active === true };
+    const current = await prisma.insurancePlan.findUnique({ where: { id: 1 } });
+    if (current?.is_demo && data.active) return fail(res, 400, "แผนตัวอย่างเปิดขายไม่ได้ กรุณาสร้างแผนจากบริษัทประกันจริง");
     const plan = await prisma.insurancePlan.upsert({ where: { id: 1 }, create: { id: 1, ...data }, update: data });
     res.json({ success: true, data: plan });
   } catch (error) { next(error); }
@@ -80,8 +125,10 @@ router.get("/travelers", async (req, res, next) => {
       { booking: { booking_code: { contains: search, mode: "insensitive" } } },
       { booking: { package: { name: { contains: search, mode: "insensitive" } } } },
     ];
-    if (status === "LEGACY") where.insuranceEnrollment = { is: null };
-    else if (status !== "ALL" && enrollmentStatuses.has(status)) where.insuranceEnrollment = { is: { status } };
+    if (status === "LEGACY" || status === "DECLINED") {
+      where.insuranceEnrollment = { is: null };
+      where.booking = { insurance_opted_in: status === "DECLINED" ? false : null };
+    } else if (status !== "ALL" && enrollmentStatuses.has(status)) where.insuranceEnrollment = { is: { status } };
     const [total, travelers] = await Promise.all([
       prisma.bookingTraveler.count({ where }),
       prisma.bookingTraveler.findMany({
@@ -89,7 +136,7 @@ router.get("/travelers", async (req, res, next) => {
         orderBy: { id: "desc" },
         include: {
           booking: { select: {
-            id: true, booking_code: true, status: true, travel_date: true,
+            id: true, booking_code: true, status: true, travel_date: true, insurance_opted_in: true,
             contact_name: true, contact_phone: true,
             package: { select: { name: true } },
             payments: { where: { status: "APPROVED" }, select: { id: true }, take: 1 }

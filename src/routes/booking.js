@@ -139,6 +139,8 @@ BookingRouter.post("/", authMiddleware, async (req, res) => {
             special_requests,
             travelers = [], // [{full_name, title, id_card_or_passport, phone}]
             selected_addons = [], // [{addon_id, quantity}]
+            insurance_selected,
+            insurance_plan_id,
             insurance_plan_updated_at,
             insurance_terms_acknowledged,
         } = req.body;
@@ -190,15 +192,21 @@ BookingRouter.post("/", authMiddleware, async (req, res) => {
             return res.status(400).json({ message: "จำนวนและประเภทผู้เดินทางไม่ตรงกับข้อมูลการจอง" });
         }
 
-        const plan = await prisma.insurancePlan.findUnique({ where: { id: 1 } });
-        if (!plan?.active) {
-            return res.status(409).json({ message: "ยังไม่เปิดแผนประกันสำหรับทริปนี้ กรุณาติดต่อเจ้าหน้าที่" });
-        }
-        if (insurance_plan_updated_at !== plan.updatedAt.toISOString()) {
-            return res.status(409).json({ message: "ข้อมูลแผนประกันเปลี่ยนแล้ว กรุณารีเฟรชหน้าเพื่อดูราคาและเงื่อนไขล่าสุด" });
-        }
-        if (insurance_terms_acknowledged !== true) {
-            return res.status(400).json({ message: "กรุณารับทราบเงื่อนไขกรมธรรม์ก่อนจอง" });
+        const insuranceSelected = insurance_selected === undefined ? insurance_plan_id != null : insurance_selected;
+        if (typeof insuranceSelected !== "boolean") return res.status(400).json({ message: "ตัวเลือกประกันไม่ถูกต้อง" });
+        const plan = insuranceSelected && pkg.insurance_plan_id
+            ? await prisma.insurancePlan.findUnique({ where: { id: pkg.insurance_plan_id } })
+            : null;
+        if (insuranceSelected) {
+            if (!plan?.active || plan.is_demo) {
+                return res.status(409).json({ message: "แพ็กเกจนี้ยังไม่ได้เลือกแผนประกันจริงที่เปิดใช้งาน กรุณาติดต่อเจ้าหน้าที่" });
+            }
+            if (Number(insurance_plan_id) !== plan.id || insurance_plan_updated_at !== plan.updatedAt.toISOString()) {
+                return res.status(409).json({ message: "ข้อมูลแผนประกันเปลี่ยนแล้ว กรุณารีเฟรชหน้าเพื่อดูราคาและเงื่อนไขล่าสุด" });
+            }
+            if (insurance_terms_acknowledged !== true) {
+                return res.status(400).json({ message: "กรุณารับทราบเงื่อนไขกรมธรรม์ก่อนจอง" });
+            }
         }
         const coverageStart = finalTravelDate;
         const coverageEnd = new Date(pkg.end_date || pkg.dayplans?.at(-1)?.dt || coverageStart);
@@ -206,7 +214,9 @@ BookingRouter.post("/", authMiddleware, async (req, res) => {
             return res.status(400).json({ message: "วันเริ่มหรือสิ้นสุดทริปไม่ถูกต้อง" });
         }
         const normalizedTravelers = prepareTravelers(travelers, adults, children, coverageStart, plan);
-        if (!normalizedTravelers) return res.status(400).json({ message: "ตรวจสอบชื่อ เลขบัตร/Passport วันเกิด และช่วงอายุที่ประกันรับของผู้เดินทางทุกคน" });
+        if (!normalizedTravelers) return res.status(400).json({ message: insuranceSelected
+            ? "ตรวจสอบชื่อ เลขบัตร/Passport วันเกิด และช่วงอายุที่ประกันรับของผู้เดินทางทุกคน"
+            : "ตรวจสอบชื่อ เลขบัตร/Passport และวันเกิดของผู้เดินทางทุกคน" });
 
         //คำนวณราคาที่เซิร์ฟเวอร์ (Zero-Trust Pricing)
         const packagePrice = pkg.price || 0;
@@ -238,7 +248,7 @@ BookingRouter.post("/", authMiddleware, async (req, res) => {
             }
         }
         //รวมราคาสุทธิ
-        const insuranceTotalSatang = plan.premium_satang * normalizedTravelers.length;
+        const insuranceTotalSatang = insuranceSelected ? plan.premium_satang * normalizedTravelers.length : 0;
         if (!Number.isSafeInteger(insuranceTotalSatang)) return res.status(400).json({ message: "ยอดประกันไม่ถูกต้อง" });
         const grandTotal = Math.round((baseTotal + addonTotal) * 100 + insuranceTotalSatang) / 100;
         const bookingCode = generateBookingCode();
@@ -275,7 +285,8 @@ BookingRouter.post("/", authMiddleware, async (req, res) => {
                 package_price: packagePrice,
                 addon_total: addonTotal,
                 insurance_total_satang: insuranceTotalSatang,
-                insurance_terms_accepted_at: new Date(),
+                insurance_opted_in: insuranceSelected,
+                insurance_terms_accepted_at: insuranceSelected ? new Date() : null,
                 total_price: grandTotal,
                 status: "PENDING_PAYMENT",
                 // บันทึกรายชื่อผู้เดินทาง (ถ้ามีส่งมา)
@@ -313,7 +324,7 @@ BookingRouter.post("/", authMiddleware, async (req, res) => {
                 },
             },
           });
-          await tx.insuranceEnrollment.createMany({ data: booking.travelers.map(traveler => ({
+          if (insuranceSelected) await tx.insuranceEnrollment.createMany({ data: booking.travelers.map(traveler => ({
               booking_id: booking.id,
               traveler_id: traveler.id,
               insurer_name: plan.insurer_name,

@@ -1,5 +1,5 @@
 model InsurancePlan {
-  id              Int      @id @default(1)
+  id              Int      @id @default(autoincrement())
   insurer_name    String
   plan_name       String
   master_policy_no String?
@@ -8,7 +8,9 @@ model InsurancePlan {
   max_age         Int
   terms_url       String
   active          Boolean  @default(false)
+  is_demo         Boolean  @default(false)
   updatedAt       DateTime @updatedAt
+  packages        Package[]
 
   @@map("insurance_plan")
 }

@@ -13,6 +13,7 @@ model Package {
   booking_start_date DateTime?
   start_date         DateTime?
   end_date           DateTime?
+  insurance_plan_id  Int?
   addons             AddonPackage[]
   bookingCollaps     BookingCollaps[]
   bookings           Booking[]
@@ -23,7 +24,9 @@ model Package {
   partners           PackagePartner[]
   location           Location?         @relation(fields: [location_id], references: [id])
   partner            Partner?          @relation(fields: [partner_id], references: [id])
+  insurancePlan      InsurancePlan?    @relation(fields: [insurance_plan_id], references: [id], onDelete: SetNull)
 
+  @@index([insurance_plan_id])
   @@map("packages")
 }
 
