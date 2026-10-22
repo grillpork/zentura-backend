@@ -4,6 +4,7 @@ const { authMiddleware } = require("../middlewares/authMiddleware.js");
 const { backofficeOnly } = require("../middlewares/backofficeOnly.js");
 const { markInsurancePaid, markInsuranceCancelled } = require("../services/bookingInsurance.js");
 const { thaiDate, dateOnly, prepareTravelers } = require("../services/insuranceRules.js");
+const { summarizePackage } = require("../services/bookingDashboard.js");
 const Stripe = require("stripe");
 const stripe = new
     Stripe(process.env.STRIPE_SECRET_KEY);
@@ -466,16 +467,43 @@ BookingRouter.get("/my-bookings", authMiddleware, async (req, res) => {
 });
 
 // -------------------------------------------------------------
+// GET /packages -> ภาพรวมแยกตามแพ็กเกจ ใช้ข้อมูลทั้งชุด ไม่ขึ้นกับหน้าของตาราง
+BookingRouter.get("/packages", ...backofficeOnly, async (req, res) => {
+    try {
+        const packages = await prisma.package.findMany({
+            select: {
+                id: true, name: true, image: true, status: true, price: true, start_date: true, end_date: true,
+                target_travelers: true, minimum_travelers: true,
+                location: { select: { name: true } },
+                costItems: true,
+                bookings: { select: {
+                    status: true, adult_count: true, child_count: true, total_price: true, addon_total: true,
+                    insurance_total_satang: true,
+                    payments: { select: { status: true, amount: true, payment_method: true } }
+                } }
+            },
+            orderBy: { id: "desc" }
+        });
+        return res.json({ success: true, data: packages.map(({ bookings, costItems, ...pkg }) => ({ ...pkg, summary: summarizePackage({ ...pkg, bookings, costItems }) })) });
+    } catch (error) {
+        console.error("BOOKING PACKAGE OVERVIEW ERROR:", error);
+        return res.status(500).json({ message: "ไม่สามารถดึงข้อมูลแพ็กเกจได้" });
+    }
+});
+
 // GET / -> ดึงรายการจองทั้งหมดแบบแบ่งหน้า (Pagination)
 // -------------------------------------------------------------
 BookingRouter.get("/", ...backofficeOnly, async (req, res) => {
     try {
         const page = Math.max(1, parseInt(req.query.page) || 1);
-        const limit = Math.max(1, parseInt(req.query.limit) || 10);
+        const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 10));
         const skip = (page - 1) * limit;
-        const { status, search } = req.query;
+        const { status, search, package_id } = req.query;
+
+        if (package_id !== undefined && (!/^\d+$/.test(String(package_id)) || Number(package_id) < 1)) return res.status(400).json({ message: "รหัสแพ็กเกจไม่ถูกต้อง" });
 
         const whereCondition = {};
+        if (package_id !== undefined) whereCondition.package_id = Number(package_id);
         if (status && status !== "ALL") {
             whereCondition.status = status;
         }
@@ -670,6 +698,15 @@ BookingRouter.patch("/:id/status", ...backofficeOnly, async (req, res) => {
         }
         if (!status) {
             return res.status(400).json({ message: "กรุณาระบุสถานะที่ต้องการเปลี่ยน" });
+        }
+        if (!["CANCELLED", "PENDING_PAYMENT", "CONFIRMED"].includes(status)) return res.status(400).json({ message: "สถานะไม่ถูกต้อง" });
+        const booking = await prisma.booking.findUnique({ where: { id }, select: { status: true, total_price: true, payments: { where: { status: "APPROVED", payment_method: { in: ["STRIPE_LIVE_CARD", "BANK_TRANSFER_VERIFIED"] } }, select: { amount: true } } } });
+        if (!booking) return res.status(404).json({ message: "ไม่พบรายการจอง" });
+        if (booking.status === "CANCELLED" && status !== "CANCELLED") return res.status(400).json({ message: "การจองที่ยกเลิกแล้วไม่สามารถนำกลับมาใช้ได้" });
+        if (status === "PENDING_PAYMENT" && booking.status !== "AWAITING_VERIFICATION") return res.status(400).json({ message: "เปลี่ยนเป็นรอชำระเงินได้เฉพาะข้อมูลเก่าที่รอตรวจสอบ" });
+        if (status === "CONFIRMED") {
+            const approved = booking.payments.reduce((sum, payment) => sum + payment.amount, 0);
+            if (approved + 0.01 < booking.total_price) return res.status(400).json({ message: "ยืนยันการจองไม่ได้จนกว่าจะมีการชำระเงินครบ" });
         }
 
         const updatedBooking = await prisma.$transaction(async (tx) => {
@@ -916,7 +953,7 @@ async function confirmStripePayment(booking, session) {
         await prisma.$transaction(async (tx) => {
             await tx.payment.create({ data: {
                 booking_id: booking.id, amount: booking.total_price,
-                payment_method: "STRIPE_CARD", stripe_session_id: session.id,
+                payment_method: session.livemode === true ? "STRIPE_LIVE_CARD" : "STRIPE_TEST_CARD", stripe_session_id: session.id,
                 status: "APPROVED", paid_at: new Date()
             } });
             if (booking.status === "CANCELLED" || booking.status === "PAYMENT_EXCEPTION") {

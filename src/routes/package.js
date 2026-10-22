@@ -1,6 +1,8 @@
 const { prisma } = require("../config/db.js");
 const express = require("express");
 const { dateOnly } = require("../services/insuranceRules.js");
+const { backofficeOnly } = require("../middlewares/backofficeOnly.js");
+const { parsePackageCosts } = require("../services/packageCosts.js");
 
 const router = express.Router();
 
@@ -124,11 +126,21 @@ router.get("/", async (req, res) => {
       },
       orderBy: { id: "desc" },
     });
-    return res.status(200).json(data);
+    return res.status(200).json(data.map(({ target_travelers, minimum_travelers, ...pkg }) => pkg));
   } catch (error) {
     console.error("Get packages error:", error);
     return res.status(500).json({ message: "Server error", error: error.message });
   }
+});
+
+router.get("/:id/costs", ...backofficeOnly, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ message: "รหัสแพ็กเกจไม่ถูกต้อง" });
+  try {
+    const data = await prisma.package.findUnique({ where: { id }, select: { target_travelers: true, minimum_travelers: true, costItems: { orderBy: { id: "asc" } } } });
+    if (!data) return res.status(404).json({ message: "ไม่พบแพ็กเกจ" });
+    return res.json(data);
+  } catch (error) { return res.status(500).json({ message: error.message }); }
 });
 
 // Get package by ID
@@ -202,7 +214,8 @@ router.get("/:id", async (req, res) => {
       },
     });
     if (!data) return res.status(404).json({ message: "Package not found" });
-    return res.status(200).json(data);
+    const { target_travelers, minimum_travelers, ...publicPackage } = data;
+    return res.status(200).json(publicPackage);
   } catch (error) {
     return res.status(500).json({ message: "Server error", error: error.message });
   }
@@ -297,10 +310,11 @@ function formatDateRange(start, end) {
 }
 
 // Create new package
-router.post("/", async (req, res) => {
+router.post("/", ...backofficeOnly, async (req, res) => {
   try {
     const { name, description, price, location_id, status, image, images, days, partner_id, partner_ids, addons, guides, bus_ids, insurance_plan_id, booking_start_date, booking_end_date, start_date, end_date } = req.body;
     const busIds = parseBusIds(bus_ids);
+    const costs = parsePackageCosts(req.body);
     const insurancePlanId = parseInsurancePlanId(insurance_plan_id);
     if (!insurancePlanId) return res.status(400).json({ message: "กรุณาเลือกแผนประกันหนึ่งแผนสำหรับแพ็กเกจ" });
 
@@ -333,6 +347,8 @@ router.post("/", async (req, res) => {
           location_id: parseInt(location_id) || null,
           partner_id: primaryPartnerId || null,
           insurance_plan_id: insurancePlanId ?? null,
+          ...(costs && { target_travelers: costs.target_travelers, minimum_travelers: costs.minimum_travelers,
+            costItems: { create: costs.items || [] } }),
           status: status || "Draft",
           start_date: calculatedStartDate,
           end_date: calculatedEndDate,
@@ -527,11 +543,12 @@ router.post("/", async (req, res) => {
 });
 
 // Update package
-router.put("/:id", async (req, res) => {
+router.put("/:id", ...backofficeOnly, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const { name, description, price, location_id, status, image, images, days, partner_id, partner_ids, addons, guides, bus_ids, insurance_plan_id, booking_start_date, booking_end_date, start_date, end_date } = req.body;
     const busIds = parseBusIds(bus_ids);
+    const costs = parsePackageCosts(req.body);
     const insurancePlanId = parseInsurancePlanId(insurance_plan_id);
     if (insurancePlanId === null) return res.status(400).json({ message: "กรุณาเลือกแผนประกันหนึ่งแผนสำหรับแพ็กเกจ" });
 
@@ -555,6 +572,7 @@ router.put("/:id", async (req, res) => {
           location_id: parseInt(location_id) || null,
           partner_id: primaryPartnerId || null,
           ...(insurancePlanId !== undefined && { insurance_plan_id: insurancePlanId }),
+          ...(costs && { target_travelers: costs.target_travelers, minimum_travelers: costs.minimum_travelers }),
           status: status || "Draft",
           start_date: calculatedStartDate,
           end_date: calculatedEndDate,
@@ -563,6 +581,12 @@ router.put("/:id", async (req, res) => {
           image: image,
         },
       });
+
+      if (costs?.items) {
+        // shortcut: package cost edits replace the current planning snapshot; add an audit ledger when supplier payments need accounting reconciliation.
+        await tx.packageCostItem.deleteMany({ where: { package_id: id } });
+        if (costs.items.length) await tx.packageCostItem.createMany({ data: costs.items.map((item) => ({ ...item, package_id: id })) });
+      }
 
       // Sync package images
       await tx.packageImage.deleteMany({ where: { package_id: id } });
@@ -831,7 +855,7 @@ router.put("/:id", async (req, res) => {
 });
 
 // Delete package
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", ...backofficeOnly, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     await prisma.$transaction(async (tx) => {

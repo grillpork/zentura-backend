@@ -14,6 +14,9 @@ model Package {
   start_date         DateTime?
   end_date           DateTime?
   insurance_plan_id  Int?
+  target_travelers   Int?
+  minimum_travelers  Int?
+  costItems          PackageCostItem[]
   addons             AddonPackage[]
   bookingCollaps     BookingCollaps[]
   bookings           Booking[]
@@ -28,6 +31,22 @@ model Package {
 
   @@index([insurance_plan_id])
   @@map("packages")
+}
+
+model PackageCostItem {
+  id                   Int      @id @default(autoincrement())
+  package_id           Int
+  category             String
+  supplier_name        String
+  pricing_mode         String   @default("FIXED")
+  amount_satang        Int
+  deposit_satang       Int      @default(0)
+  paid_deposit_satang  Int      @default(0)
+  paid_balance_satang  Int      @default(0)
+  package              Package  @relation(fields: [package_id], references: [id], onDelete: Cascade)
+
+  @@index([package_id])
+  @@map("package_cost_items")
 }
 
 model PackageGuide {
