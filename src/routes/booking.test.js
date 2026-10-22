@@ -13,7 +13,8 @@ test("booking charges and enrolls only when the customer selects insurance", asy
   let enrolled;
   const updatedAt = new Date("2026-10-22T00:00:00.000Z");
   const plan = { id: 5, active: true, is_demo: false, premium_satang: 9900,
-    min_age: 1, max_age: 120, insurer_name: "Test insurer", plan_name: "Test plan",
+    min_age: 1, max_age: 120, min_trip_days: 1, max_trip_days: 4,
+    insurer_name: "Test insurer", plan_name: "Test plan",
     master_policy_no: null, terms_url: "https://example.org/terms", updatedAt };
   const pkg = { id: 2, name: "Test tour", status: "Published", price: 1290,
     start_date: new Date("2099-10-22T00:00:00.000Z"), end_date: new Date("2099-10-22T00:00:00.000Z"),
@@ -51,12 +52,26 @@ test("booking charges and enrolls only when the customer selects insurance", asy
     assert.equal(saved.total_price, 1290);
     assert.equal(enrolled, false);
 
+    plan.active = false;
+    assert.equal((await request({ insurance_selected: false })).statusCode, 201);
+    assert.equal(saved.insurance_total_satang, 0);
+    assert.equal(enrolled, false);
+    assert.equal((await request({ insurance_selected: true, insurance_plan_id: 5,
+      insurance_plan_updated_at: updatedAt.toISOString(), insurance_terms_acknowledged: true })).statusCode, 409);
+    assert.equal(enrolled, false);
+    plan.active = true;
+
     assert.equal((await request({ insurance_selected: true, insurance_plan_id: 5,
       insurance_plan_updated_at: updatedAt.toISOString(), insurance_terms_acknowledged: true })).statusCode, 201);
     assert.equal(saved.insurance_opted_in, true);
     assert.equal(saved.insurance_total_satang, 9900);
     assert.equal(saved.total_price, 1389);
     assert.equal(enrolled, true);
+
+    pkg.end_date = new Date("2099-10-26T00:00:00.000Z");
+    assert.equal((await request({ insurance_selected: true, insurance_plan_id: 5,
+      insurance_plan_updated_at: updatedAt.toISOString(), insurance_terms_acknowledged: true })).statusCode, 409);
+    assert.equal(enrolled, false);
   } finally {
     if (previousRoute) require.cache[routePath] = previousRoute;
     else delete require.cache[routePath];

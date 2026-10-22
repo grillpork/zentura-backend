@@ -6,6 +6,8 @@ model InsurancePlan {
   premium_satang  Int
   min_age         Int
   max_age         Int
+  min_trip_days   Int?
+  max_trip_days   Int?
   terms_url       String
   active          Boolean  @default(false)
   is_demo         Boolean  @default(false)
