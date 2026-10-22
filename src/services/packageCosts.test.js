@@ -1,18 +1,28 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { parsePackageCosts, costAt } = require("./packageCosts.js");
+const { parsePackageCosts, resolvePackageCosts, sourceCategory, costAt } = require("./packageCosts.js");
 const { summarizePackage } = require("./bookingDashboard.js");
 
-test("cost plan counts fixed and per-person costs without adding deposits twice", () => {
-  const plan = parsePackageCosts({ target_travelers: 20, minimum_travelers: 10, cost_items: [
-    { category: "TRANSPORT", supplier_name: "Bus", pricing_mode: "FIXED", amount_satang: 1000000, deposit_satang: 200000, paid_deposit_satang: 200000 },
-    { category: "FOOD", supplier_name: "Restaurant", pricing_mode: "PER_PERSON", amount_satang: 20000, deposit_satang: 100000, paid_deposit_satang: 100000 },
+const tx = {
+  bus: { findMany: async () => [{ id: 1, layout: { decks: [["1101"]] } }] },
+  location: { findMany: async ({ where }) => where.id.in.includes(2) ? [{ id: 2, name: "วัดใหญ่", lct_type: { name: "วัด" } }] : [] },
+  partner: { findMany: async ({ where }) => where.id.in.includes(3) ? [{ id: 3, name: "ร้านอาหารอยุธยา", pt_type: { name: "ร้านอาหารและคาเฟ่" } }] : [] },
+};
+const selected = { busIds: [1], locationIds: [2], partnerIds: [3] };
+
+test("capacity comes from bus seats and costs link to selected places", async () => {
+  const plan = parsePackageCosts({ minimum_travelers: 2, cost_items: [
+    { partner_id: 3, amount_satang: 100000, deposit_satang: 20000, paid_deposit_satang: 20000 },
+    { location_id: 2, amount_satang: 50000 },
   ] });
-  assert.equal(costAt(plan.items, 10), 1200000);
-  assert.equal(costAt(plan.items, 20), 1400000);
-  const summary = summarizePackage({ price: 1000, target_travelers: 20, minimum_travelers: 10, costItems: plan.items, bookings: [] });
-  assert.equal(summary.breakEvenAdults, 13);
-  assert.equal(summary.supplierPaidSatang, 300000);
+  const resolved = await resolvePackageCosts(tx, plan, selected);
+  assert.equal(resolved.target_travelers, 3);
+  assert.equal(resolved.items[0].supplier_name, "ร้านอาหารอยุธยา");
+  assert.equal(resolved.items[0].category, "FOOD");
+  assert.equal(costAt(resolved.items, 2), 150000);
+  const summary = summarizePackage({ price: 1000, minimum_travelers: 2, costItems: resolved.items, packageBuses: [{ bus: { layout: { decks: [["1101"]] } } }], bookings: [] });
+  assert.equal(summary.targetTravelers, 3);
+  assert.equal(summary.supplierPaidSatang, 20000);
 });
 
 test("only confirmed bookings with approved payment count as paid", () => {
@@ -34,7 +44,10 @@ test("only confirmed bookings with approved payment count as paid", () => {
   assert.equal(summary.unverifiedBookingCount, 2);
 });
 
-test("rejects invalid deposit and impossible capacity", () => {
-  assert.throws(() => parsePackageCosts({ target_travelers: 10, minimum_travelers: 20, cost_items: [] }));
-  assert.throws(() => parsePackageCosts({ target_travelers: 20, cost_items: [{ category: "FOOD", supplier_name: "A", pricing_mode: "FIXED", amount_satang: 1000, deposit_satang: 2000 }] }));
+test("rejects excess people, unselected sources, shop stops and overpayment", async () => {
+  await assert.rejects(resolvePackageCosts(tx, parsePackageCosts({ minimum_travelers: 4, cost_items: [] }), selected), /3 ที่นั่ง/);
+  await assert.rejects(resolvePackageCosts(tx, parsePackageCosts({ cost_items: [{ partner_id: 3, amount_satang: 1000 }] }), { ...selected, partnerIds: [] }), /อยู่ในแพ็กเกจ/);
+  assert.equal(sourceCategory("ร้านของฝาก"), null);
+  assert.throws(() => parsePackageCosts({ cost_items: [{ location_id: 2, amount_satang: 1000, deposit_satang: 2000 }] }), /เกินต้นทุน/);
+  assert.throws(() => parsePackageCosts({ cost_items: [{ location_id: 2, amount_satang: 1000 }, { location_id: 2, amount_satang: 1000 }] }), /ซ้ำ/);
 });

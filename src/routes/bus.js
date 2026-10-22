@@ -67,6 +67,14 @@ BusRoute.put("/:id", async (req, res) => {
       return res.status(409).json({ success: false, message: "รถคันนี้มีผู้โดยสารที่จัดที่นั่งแล้ว จึงเปลี่ยนผังที่นั่งไม่ได้" });
     }
 
+    const plannedPackages = await prisma.packageBus.findMany({
+      where: { bus_id: id, package: { minimum_travelers: { not: null } } },
+      include: { package: { select: { name: true, minimum_travelers: true, packageBuses: { include: { bus: { select: { layout: true } } } } } } },
+    });
+    const reducedPlan = plannedPackages.find(({ package: pkg }) =>
+      pkg.packageBuses.reduce((sum, row) => sum + seatList(row.bus_id === id ? data.layout : row.bus.layout).length, 0) < pkg.minimum_travelers);
+    if (reducedPlan) return res.status(409).json({ success: false, message: `ผังที่นั่งใหม่น้อยกว่าจำนวนขั้นต่ำของแพ็กเกจ “${reducedPlan.package.name}”` });
+
     const updated = await prisma.bus.update({
       where: { id },
       data: { ...data, updatedAt: new Date(Date.now() + 7 * 3600 * 1000) },

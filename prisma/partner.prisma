@@ -22,6 +22,7 @@ model Partner {
   packagePartners PackagePartner[]
   packages        Package[]
   location        Location?        @relation(fields: [location_id], references: [id])
+  costItems       PackageCostItem[]
   pt_type         PartnerType      @relation(fields: [pt_type_id], references: [id], onDelete: Cascade)
 
   @@map("partner")

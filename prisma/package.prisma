@@ -36,6 +36,8 @@ model Package {
 model PackageCostItem {
   id                   Int      @id @default(autoincrement())
   package_id           Int
+  location_id          Int?
+  partner_id           Int?
   category             String
   supplier_name        String
   pricing_mode         String   @default("FIXED")
@@ -44,8 +46,12 @@ model PackageCostItem {
   paid_deposit_satang  Int      @default(0)
   paid_balance_satang  Int      @default(0)
   package              Package  @relation(fields: [package_id], references: [id], onDelete: Cascade)
+  location             Location? @relation(fields: [location_id], references: [id], onDelete: Restrict)
+  partner              Partner?  @relation(fields: [partner_id], references: [id], onDelete: Restrict)
 
   @@index([package_id])
+  @@index([location_id])
+  @@index([partner_id])
   @@map("package_cost_items")
 }
 

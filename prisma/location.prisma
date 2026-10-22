@@ -18,6 +18,7 @@ model Location {
   lct_type    LocationType      @relation(fields: [lct_type_id], references: [id], onDelete: Cascade)
   packages    Package[]
   partner     Partner[]
+  costItems   PackageCostItem[]
 
   @@map("location")
 }

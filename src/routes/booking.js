@@ -474,6 +474,7 @@ BookingRouter.get("/packages", ...backofficeOnly, async (req, res) => {
             select: {
                 id: true, name: true, image: true, status: true, price: true, start_date: true, end_date: true,
                 target_travelers: true, minimum_travelers: true,
+                packageBuses: { select: { bus: { select: { layout: true } } } },
                 location: { select: { name: true } },
                 costItems: true,
                 bookings: { select: {
@@ -484,7 +485,7 @@ BookingRouter.get("/packages", ...backofficeOnly, async (req, res) => {
             },
             orderBy: { id: "desc" }
         });
-        return res.json({ success: true, data: packages.map(({ bookings, costItems, ...pkg }) => ({ ...pkg, summary: summarizePackage({ ...pkg, bookings, costItems }) })) });
+        return res.json({ success: true, data: packages.map(({ bookings, costItems, packageBuses, ...pkg }) => ({ ...pkg, summary: summarizePackage({ ...pkg, bookings, costItems, packageBuses }) })) });
     } catch (error) {
         console.error("BOOKING PACKAGE OVERVIEW ERROR:", error);
         return res.status(500).json({ message: "ไม่สามารถดึงข้อมูลแพ็กเกจได้" });

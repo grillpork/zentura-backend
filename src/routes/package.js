@@ -2,7 +2,7 @@ const { prisma } = require("../config/db.js");
 const express = require("express");
 const { dateOnly } = require("../services/insuranceRules.js");
 const { backofficeOnly } = require("../middlewares/backofficeOnly.js");
-const { parsePackageCosts } = require("../services/packageCosts.js");
+const { parsePackageCosts, resolvePackageCosts } = require("../services/packageCosts.js");
 
 const router = express.Router();
 
@@ -22,6 +22,9 @@ const parseBusIds = (value) => {
   }
   return ids;
 };
+
+const selectedLocationIds = (locationId, days = []) => [locationId, ...days.map((day) => day.id_location || day.location_id || locationId)].map(Number).filter((id) => Number.isSafeInteger(id) && id > 0);
+const selectedPartnerIds = (partnerId, partnerIds) => (Array.isArray(partnerIds) && partnerIds.length ? partnerIds : partnerId ? [partnerId] : []).map(Number).filter((id) => Number.isSafeInteger(id) && id > 0);
 
 const parseInsurancePlanId = (value) => {
   if (value === undefined) return undefined;
@@ -137,9 +140,11 @@ router.get("/:id/costs", ...backofficeOnly, async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ message: "รหัสแพ็กเกจไม่ถูกต้อง" });
   try {
-    const data = await prisma.package.findUnique({ where: { id }, select: { target_travelers: true, minimum_travelers: true, costItems: { orderBy: { id: "asc" } } } });
+    const data = await prisma.package.findUnique({ where: { id }, select: { target_travelers: true, minimum_travelers: true, costItems: { orderBy: { id: "asc" } }, packageBuses: { select: { bus: { select: { layout: true } } } } } });
     if (!data) return res.status(404).json({ message: "ไม่พบแพ็กเกจ" });
-    return res.json(data);
+    const { seatList } = require("../lib/seats.js");
+    const { packageBuses, ...costData } = data;
+    return res.json({ ...costData, target_travelers: packageBuses.reduce((sum, row) => sum + seatList(row.bus.layout).length, 0) || null });
   } catch (error) { return res.status(500).json({ message: error.message }); }
 });
 
@@ -339,6 +344,11 @@ router.post("/", ...backofficeOnly, async (req, res) => {
     }
 
     const result = await prisma.$transaction(async (tx) => {
+      const resolvedCosts = await resolvePackageCosts(tx, costs, {
+        busIds: busIds || [],
+        locationIds: selectedLocationIds(location_id, days || []),
+        partnerIds: selectedPartnerIds(primaryPartnerId, partner_ids),
+      });
       const newPackage = await tx.package.create({
         data: {
           name,
@@ -347,8 +357,9 @@ router.post("/", ...backofficeOnly, async (req, res) => {
           location_id: parseInt(location_id) || null,
           partner_id: primaryPartnerId || null,
           insurance_plan_id: insurancePlanId ?? null,
-          ...(costs && { target_travelers: costs.target_travelers, minimum_travelers: costs.minimum_travelers,
-            costItems: { create: costs.items || [] } }),
+          target_travelers: resolvedCosts.target_travelers,
+          minimum_travelers: resolvedCosts.minimum_travelers,
+          ...(costs && { costItems: { create: resolvedCosts.items } }),
           status: status || "Draft",
           start_date: calculatedStartDate,
           end_date: calculatedEndDate,
@@ -562,6 +573,22 @@ router.put("/:id", ...backofficeOnly, async (req, res) => {
     await verifyInsurancePlan(insurancePlanId, calculatedStartDate, calculatedEndDate);
 
     const result = await prisma.$transaction(async (tx) => {
+      const current = await tx.package.findUnique({ where: { id }, select: {
+        minimum_travelers: true, location_id: true, partner_id: true,
+        packageBuses: { select: { bus_id: true } },
+        dayplans: { select: { location_id: true } },
+        partners: { select: { partner_id: true } },
+      } });
+      if (!current) { const error = new Error("ไม่พบแพ็กเกจ"); error.isCustom = true; throw error; }
+      const effectiveBusIds = busIds ?? current.packageBuses.map((item) => item.bus_id);
+      const effectiveDays = days ?? current.dayplans;
+      const effectiveLocationId = location_id === undefined ? current.location_id : location_id;
+      const effectivePartnerIds = partner_ids === undefined ? current.partners.map((item) => item.partner_id) : partner_ids;
+      const resolvedCosts = await resolvePackageCosts(tx, costs, {
+        busIds: effectiveBusIds,
+        locationIds: selectedLocationIds(effectiveLocationId, effectiveDays),
+        partnerIds: selectedPartnerIds(partner_id === undefined ? current.partner_id : primaryPartnerId, effectivePartnerIds),
+      }, current.minimum_travelers);
       // Update basic info & partner
       const updatedPackage = await tx.package.update({
         where: { id },
@@ -572,7 +599,8 @@ router.put("/:id", ...backofficeOnly, async (req, res) => {
           location_id: parseInt(location_id) || null,
           partner_id: primaryPartnerId || null,
           ...(insurancePlanId !== undefined && { insurance_plan_id: insurancePlanId }),
-          ...(costs && { target_travelers: costs.target_travelers, minimum_travelers: costs.minimum_travelers }),
+          target_travelers: resolvedCosts.target_travelers,
+          minimum_travelers: resolvedCosts.minimum_travelers,
           status: status || "Draft",
           start_date: calculatedStartDate,
           end_date: calculatedEndDate,
@@ -582,10 +610,10 @@ router.put("/:id", ...backofficeOnly, async (req, res) => {
         },
       });
 
-      if (costs?.items) {
+      if (resolvedCosts.items) {
         // shortcut: package cost edits replace the current planning snapshot; add an audit ledger when supplier payments need accounting reconciliation.
         await tx.packageCostItem.deleteMany({ where: { package_id: id } });
-        if (costs.items.length) await tx.packageCostItem.createMany({ data: costs.items.map((item) => ({ ...item, package_id: id })) });
+        if (resolvedCosts.items.length) await tx.packageCostItem.createMany({ data: resolvedCosts.items.map((item) => ({ ...item, package_id: id })) });
       }
 
       // Sync package images
@@ -838,8 +866,7 @@ router.put("/:id", ...backofficeOnly, async (req, res) => {
         }
       }
 
-      const previousBuses = await tx.packageBus.findMany({ where: { package_id: id }, select: { bus_id: true } });
-      await syncPackageBuses(tx, id, busIds, previousBuses.map((item) => item.bus_id));
+      await syncPackageBuses(tx, id, busIds, current.packageBuses.map((item) => item.bus_id));
       return updatedPackage;
     });
 
