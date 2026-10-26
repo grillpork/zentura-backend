@@ -23,6 +23,13 @@ test("capacity comes from bus seats and costs link to selected places", async ()
   const summary = summarizePackage({ price: 1000, minimum_travelers: 2, costItems: resolved.items, packageBuses: [{ bus: { layout: { decks: [["1101"]] } } }], bookings: [] });
   assert.equal(summary.targetTravelers, 3);
   assert.equal(summary.supplierPaidSatang, 20000);
+  assert.equal(summary.totalDepositSatang, 20000);
+});
+
+test("per-person deposits use the package minimum and require it to be set", () => {
+  const costItems = [{ pricing_mode: "PER_PERSON", amount_satang: 10000, deposit_satang: 2500, paid_deposit_satang: 0, paid_balance_satang: 0 }];
+  assert.equal(summarizePackage({ minimum_travelers: 15, costItems }).totalDepositSatang, 37500);
+  assert.equal(summarizePackage({ minimum_travelers: null, costItems }).totalDepositSatang, null);
 });
 
 test("only confirmed bookings with approved payment count as paid", () => {

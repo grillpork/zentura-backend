@@ -14,6 +14,9 @@ function summarizePackage(pkg) {
   const receivedSatang = paid.reduce((sum, booking) => sum + booking.payments.filter(realPayment).reduce((amount, payment) => amount + Math.round(payment.amount * 100), 0), 0);
   const packageRevenueSatang = paid.reduce((sum, booking) => sum + Math.max(0, Math.round((booking.total_price - booking.addon_total) * 100) - booking.insurance_total_satang), 0);
   const items = pkg.costItems || [];
+  const totalDepositSatang = pkg.minimum_travelers == null && items.some((item) => item.pricing_mode === "PER_PERSON")
+    ? null
+    : items.reduce((sum, item) => sum + (item.deposit_satang || 0) * (item.pricing_mode === "PER_PERSON" ? pkg.minimum_travelers : 1), 0);
   const capacity = pkg.packageBuses ? pkg.packageBuses.reduce((sum, row) => sum + seatList(row.bus.layout).length, 0) : pkg.target_travelers;
   const fixedSatang = items.filter((item) => item.pricing_mode === "FIXED").reduce((sum, item) => sum + item.amount_satang, 0);
   const variableSatang = items.filter((item) => item.pricing_mode === "PER_PERSON").reduce((sum, item) => sum + item.amount_satang, 0);
@@ -39,6 +42,7 @@ function summarizePackage(pkg) {
     minimumTravelers: pkg.minimum_travelers,
     costAtMinimumSatang: pkg.minimum_travelers ? costAt(items, pkg.minimum_travelers) : null,
     costAtTargetSatang: capacity ? costAt(items, capacity) : null,
+    totalDepositSatang,
     currentCostSatang,
     supplierPaidSatang: items.reduce((sum, item) => sum + item.paid_deposit_satang + item.paid_balance_satang, 0),
     breakEvenAdults: additionalAdults === null ? null : paidAdults + additionalAdults,
