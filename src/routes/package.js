@@ -348,6 +348,7 @@ router.post("/", ...backofficeOnly, async (req, res) => {
         busIds: busIds || [],
         locationIds: selectedLocationIds(location_id, days || []),
         partnerIds: selectedPartnerIds(primaryPartnerId, partner_ids),
+        days: days || [],
       });
       const newPackage = await tx.package.create({
         data: {
@@ -576,7 +577,7 @@ router.put("/:id", ...backofficeOnly, async (req, res) => {
       const current = await tx.package.findUnique({ where: { id }, select: {
         minimum_travelers: true, location_id: true, partner_id: true,
         packageBuses: { select: { bus_id: true } },
-        dayplans: { select: { location_id: true } },
+        dayplans: { select: { location_id: true, hotel: true, activities: { select: { landmark: true, activity: true, status: true } } } },
         partners: { select: { partner_id: true } },
       } });
       if (!current) { const error = new Error("ไม่พบแพ็กเกจ"); error.isCustom = true; throw error; }
@@ -588,6 +589,7 @@ router.put("/:id", ...backofficeOnly, async (req, res) => {
         busIds: effectiveBusIds,
         locationIds: selectedLocationIds(effectiveLocationId, effectiveDays),
         partnerIds: selectedPartnerIds(partner_id === undefined ? current.partner_id : primaryPartnerId, effectivePartnerIds),
+        days: effectiveDays,
       }, current.minimum_travelers);
       // Update basic info & partner
       const updatedPackage = await tx.package.update({

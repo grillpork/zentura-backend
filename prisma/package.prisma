@@ -38,6 +38,7 @@ model PackageCostItem {
   package_id           Int
   location_id          Int?
   partner_id           Int?
+  itinerary_place      String?
   category             String
   supplier_name        String
   pricing_mode         String   @default("FIXED")

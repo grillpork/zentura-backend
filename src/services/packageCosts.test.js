@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { parsePackageCosts, resolvePackageCosts, sourceCategory, costAt } = require("./packageCosts.js");
+const { parsePackageCosts, resolvePackageCosts, sourceCategory, itineraryPlaces, costAt } = require("./packageCosts.js");
 const { summarizePackage } = require("./bookingDashboard.js");
 
 const tx = {
@@ -50,4 +50,24 @@ test("rejects excess people, unselected sources, shop stops and overpayment", as
   assert.equal(sourceCategory("ร้านของฝาก"), null);
   assert.throws(() => parsePackageCosts({ cost_items: [{ location_id: 2, amount_satang: 1000, deposit_satang: 2000 }] }), /เกินต้นทุน/);
   assert.throws(() => parsePackageCosts({ cost_items: [{ location_id: 2, amount_satang: 1000 }, { location_id: 2, amount_satang: 1000 }] }), /ซ้ำ/);
+});
+
+test("costs can be attached to included itinerary places without a separate location record", async () => {
+  const days = [{ hotel: "ไม่มีค้างคืน (ไปเช้า-เย็นกลับ)", activities: [
+    { landmark: "กรุงเทพมหานคร", activity: "ออกเดินทางจากจุดนัดพบ" },
+    { landmark: "วัดใหญ่ชัยมงคล", activity: "ชมวัด" },
+    { landmark: "วัดมหาธาตุ", activity: "ชมวัด" },
+    { landmark: "ร้านอาหารริมน้ำเจ้าพระยา", activity: "รับประทานอาหารกลางวัน" },
+    { landmark: "ท่าเรือโบราณ", activity: "ขึ้นเรือ" },
+    { landmark: "วัดไชยวัฒนาราม", activity: "ชมวัด" },
+    { landmark: "ตลาดของฝากอยุธยา", activity: "ซื้อของฝาก" },
+    { landmark: "วัดอื่น", activity: "แวะชม", status: "optional" },
+  ] }];
+  assert.deepEqual([...itineraryPlaces(days).keys()], ["วัดใหญ่ชัยมงคล", "วัดมหาธาตุ", "ร้านอาหารริมน้ำเจ้าพระยา", "วัดไชยวัฒนาราม"]);
+  const plan = parsePackageCosts({ cost_items: [{ itinerary_place: "ร้านอาหารริมน้ำเจ้าพระยา", amount_satang: 100000, deposit_satang: 30000, paid_deposit_satang: 20000 }] });
+  const resolved = await resolvePackageCosts(tx, plan, { ...selected, days });
+  assert.equal(resolved.items[0].category, "FOOD");
+  assert.equal(resolved.items[0].supplier_name, "ร้านอาหารริมน้ำเจ้าพระยา");
+  assert.equal(resolved.items[0].itinerary_place, "ร้านอาหารริมน้ำเจ้าพระยา");
+  await assert.rejects(resolvePackageCosts(tx, parsePackageCosts({ cost_items: [{ itinerary_place: "ตลาดของฝากอยุธยา", amount_satang: 1000 }] }), { ...selected, days }), /ไม่อยู่ในแพ็กเกจ/);
 });
