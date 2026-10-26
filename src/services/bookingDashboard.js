@@ -5,7 +5,10 @@ function summarizePackage(pkg) {
   const bookings = pkg.bookings || [];
   const active = bookings.filter((booking) => booking.status !== "CANCELLED");
   const confirmed = active.filter((booking) => booking.status === "CONFIRMED");
+  const unconfirmed = active.filter((booking) => booking.status !== "CONFIRMED");
   const confirmedTravelers = confirmed.reduce((sum, booking) => sum + booking.adult_count + booking.child_count, 0);
+  const unconfirmedTravelers = unconfirmed.reduce((sum, booking) => sum + booking.adult_count + booking.child_count, 0);
+  const confirmedBookingTotalSatang = confirmed.reduce((sum, booking) => sum + Math.round(booking.total_price * 100), 0);
   const reservedTravelers = active.reduce((sum, booking) => sum + booking.adult_count + booking.child_count, 0);
   // Legacy STRIPE_CARD rows have no session ID, so their live/test origin cannot be verified.
   const realPayment = (payment) => payment.status === "APPROVED" && ["STRIPE_LIVE_CARD", "BANK_TRANSFER_VERIFIED"].includes(payment.payment_method);
@@ -30,8 +33,11 @@ function summarizePackage(pkg) {
   return {
     bookingCount: active.length,
     reservedTravelers,
+    unconfirmedBookingCount: unconfirmed.length,
+    unconfirmedTravelers,
     confirmedBookingCount: confirmed.length,
     confirmedTravelers,
+    confirmedBookingTotalSatang,
     travelerGap: pkg.minimum_travelers == null ? null : confirmedTravelers - pkg.minimum_travelers,
     paidBookingCount: paid.length,
     paidAdults,
