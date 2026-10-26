@@ -45,14 +45,31 @@ test("only confirmed bookings with approved payment count as paid", () => {
   ] });
   assert.equal(summary.bookingCount, 6);
   assert.equal(summary.reservedTravelers, 18);
+  assert.equal(summary.confirmedBookingCount, 4);
+  assert.equal(summary.confirmedTravelers, 12);
   assert.equal(summary.paidTravelers, 3);
   assert.equal(summary.receivedSatang, 200000);
   assert.equal(summary.moreAdultsNeeded, 1);
   assert.equal(summary.unverifiedBookingCount, 2);
 });
 
+test("booking target compares confirmed reservations, including legacy confirmed rows", () => {
+  const booking = (status, people) => ({ status, adult_count: people, child_count: 0, total_price: 1000, addon_total: 0, insurance_total_satang: 0, payments: [] });
+  const bookings = [booking("CONFIRMED", 2), booking("CONFIRMED", 1), booking("PENDING_PAYMENT", 1)];
+  const legacy = summarizePackage({ minimum_travelers: 15, bookings });
+  assert.equal(legacy.bookingCount, 3);
+  assert.equal(legacy.confirmedBookingCount, 2);
+  assert.equal(legacy.confirmedTravelers, 3);
+  assert.equal(legacy.targetBookings, 15);
+  assert.equal(legacy.bookingGap, -13);
+  assert.equal(legacy.bookingTargetInferred, true);
+  assert.equal(summarizePackage({ target_bookings: 1, minimum_travelers: 15, bookings }).bookingGap, 1);
+});
+
 test("rejects excess people, unselected sources, shop stops and overpayment", async () => {
   await assert.rejects(resolvePackageCosts(tx, parsePackageCosts({ minimum_travelers: 4, cost_items: [] }), selected), /3 ที่นั่ง/);
+  await assert.rejects(resolvePackageCosts(tx, parsePackageCosts({ target_bookings: 4, cost_items: [] }), selected), /3 ที่นั่ง/);
+  assert.throws(() => parsePackageCosts({ target_bookings: -1, cost_items: [] }), /เป้าจำนวนการจอง/);
   await assert.rejects(resolvePackageCosts(tx, parsePackageCosts({ cost_items: [{ partner_id: 3, amount_satang: 1000 }] }), { ...selected, partnerIds: [] }), /อยู่ในแพ็กเกจ/);
   assert.equal(sourceCategory("ร้านของฝาก"), null);
   assert.throws(() => parsePackageCosts({ cost_items: [{ location_id: 2, amount_satang: 1000, deposit_satang: 2000 }] }), /เกินต้นทุน/);

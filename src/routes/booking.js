@@ -473,7 +473,7 @@ BookingRouter.get("/packages", ...backofficeOnly, async (req, res) => {
         const packages = await prisma.package.findMany({
             select: {
                 id: true, name: true, image: true, status: true, price: true, start_date: true, end_date: true,
-                target_travelers: true, minimum_travelers: true,
+                target_travelers: true, minimum_travelers: true, target_bookings: true,
                 packageBuses: { select: { bus: { select: { layout: true } } } },
                 location: { select: { name: true } },
                 costItems: true,

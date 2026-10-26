@@ -4,9 +4,11 @@ const moneyFields = ["amount_satang", "deposit_satang", "paid_deposit_satang", "
 const invalid = (message) => { const error = new Error(message); error.isCustom = true; throw error; };
 
 function parsePackageCosts(body) {
-  if (body.cost_items === undefined && body.minimum_travelers === undefined) return null;
+  if (body.cost_items === undefined && body.minimum_travelers === undefined && body.target_bookings === undefined) return null;
   const minimum = body.minimum_travelers === "" || body.minimum_travelers == null ? null : Number(body.minimum_travelers);
+  const targetBookings = body.target_bookings === "" || body.target_bookings == null ? null : Number(body.target_bookings);
   if (minimum !== null && (!Number.isSafeInteger(minimum) || minimum < 1)) invalid("จำนวนขั้นต่ำที่วางแผนไม่ถูกต้อง");
+  if (targetBookings !== null && (!Number.isSafeInteger(targetBookings) || targetBookings < 1)) invalid("เป้าจำนวนการจองไม่ถูกต้อง");
   if (!Array.isArray(body.cost_items) || body.cost_items.length > 100) invalid("รายการต้นทุนไม่ถูกต้อง");
   const seen = new Set();
   const items = body.cost_items.map((item, index) => {
@@ -28,7 +30,7 @@ function parsePackageCosts(body) {
     }
     return { location_id: locationId, partner_id: partnerId, itinerary_place: itineraryPlace || null, ...amounts };
   });
-  return { minimum_travelers: minimum, items };
+  return { minimum_travelers: minimum, target_bookings: targetBookings, items };
 }
 
 function sourceCategory(type, partner = false) {
@@ -67,13 +69,15 @@ function itineraryPlaces(days = []) {
   return places;
 }
 
-async function resolvePackageCosts(tx, costs, { busIds, locationIds, partnerIds, days = [] }, existingMinimum = null) {
+async function resolvePackageCosts(tx, costs, { busIds, locationIds, partnerIds, days = [] }, existingMinimum = null, existingTargetBookings = null) {
   const buses = await tx.bus.findMany({ where: { id: { in: busIds } }, select: { id: true, layout: true } });
   if (buses.length !== busIds.length) invalid("ไม่พบรถบัสที่เลือก");
   const capacity = buses.reduce((sum, bus) => sum + seatList(bus.layout).length, 0);
   const minimum = costs ? costs.minimum_travelers : existingMinimum;
+  const targetBookings = costs ? costs.target_bookings : existingTargetBookings;
   if (minimum !== null && minimum > capacity) invalid(`จำนวนขั้นต่ำที่วางแผนต้องไม่เกิน ${capacity} ที่นั่งของรถที่เลือก`);
-  const result = { target_travelers: capacity || null, minimum_travelers: minimum };
+  if (targetBookings !== null && targetBookings > capacity) invalid(`เป้าจำนวนการจองต้องไม่เกิน ${capacity} ที่นั่งของรถที่เลือก`);
+  const result = { target_travelers: capacity || null, minimum_travelers: minimum, target_bookings: targetBookings };
   if (!costs) return result;
 
   const locations = await tx.location.findMany({ where: { id: { in: [...new Set(locationIds)] } }, include: { lct_type: true } });

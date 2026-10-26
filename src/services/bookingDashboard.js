@@ -4,10 +4,13 @@ const { seatList } = require("../lib/seats.js");
 function summarizePackage(pkg) {
   const bookings = pkg.bookings || [];
   const active = bookings.filter((booking) => booking.status !== "CANCELLED");
+  const confirmed = active.filter((booking) => booking.status === "CONFIRMED");
+  // shortcut: legacy packages reuse the old minimum as a booking target until an admin saves an explicit target.
+  const targetBookings = pkg.target_bookings ?? pkg.minimum_travelers;
   const reservedTravelers = active.reduce((sum, booking) => sum + booking.adult_count + booking.child_count, 0);
   // Legacy STRIPE_CARD rows have no session ID, so their live/test origin cannot be verified.
   const realPayment = (payment) => payment.status === "APPROVED" && ["STRIPE_LIVE_CARD", "BANK_TRANSFER_VERIFIED"].includes(payment.payment_method);
-  const paid = active.filter((booking) => booking.status === "CONFIRMED" && booking.payments?.some(realPayment) && booking.payments.filter(realPayment).reduce((sum, payment) => sum + Math.round(payment.amount * 100), 0) >= Math.round(booking.total_price * 100));
+  const paid = confirmed.filter((booking) => booking.payments?.some(realPayment) && booking.payments.filter(realPayment).reduce((sum, payment) => sum + Math.round(payment.amount * 100), 0) >= Math.round(booking.total_price * 100));
   const unverifiedBookingCount = active.filter((booking) => !paid.includes(booking) && booking.payments?.some((payment) => payment.status === "APPROVED" && !realPayment(payment))).length;
   const paidAdults = paid.reduce((sum, booking) => sum + booking.adult_count, 0);
   const paidChildren = paid.reduce((sum, booking) => sum + booking.child_count, 0);
@@ -28,6 +31,11 @@ function summarizePackage(pkg) {
   return {
     bookingCount: active.length,
     reservedTravelers,
+    confirmedBookingCount: confirmed.length,
+    confirmedTravelers: confirmed.reduce((sum, booking) => sum + booking.adult_count + booking.child_count, 0),
+    targetBookings,
+    bookingGap: targetBookings == null ? null : confirmed.length - targetBookings,
+    bookingTargetInferred: pkg.target_bookings == null && pkg.minimum_travelers != null,
     paidBookingCount: paid.length,
     paidAdults,
     paidChildren,

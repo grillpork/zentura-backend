@@ -16,6 +16,7 @@ model Package {
   insurance_plan_id  Int?
   target_travelers   Int?
   minimum_travelers  Int?
+  target_bookings    Int?
   costItems          PackageCostItem[]
   addons             AddonPackage[]
   bookingCollaps     BookingCollaps[]
