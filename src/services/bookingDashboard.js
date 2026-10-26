@@ -5,8 +5,7 @@ function summarizePackage(pkg) {
   const bookings = pkg.bookings || [];
   const active = bookings.filter((booking) => booking.status !== "CANCELLED");
   const confirmed = active.filter((booking) => booking.status === "CONFIRMED");
-  // shortcut: legacy packages reuse the old minimum as a booking target until an admin saves an explicit target.
-  const targetBookings = pkg.target_bookings ?? pkg.minimum_travelers;
+  const confirmedTravelers = confirmed.reduce((sum, booking) => sum + booking.adult_count + booking.child_count, 0);
   const reservedTravelers = active.reduce((sum, booking) => sum + booking.adult_count + booking.child_count, 0);
   // Legacy STRIPE_CARD rows have no session ID, so their live/test origin cannot be verified.
   const realPayment = (payment) => payment.status === "APPROVED" && ["STRIPE_LIVE_CARD", "BANK_TRANSFER_VERIFIED"].includes(payment.payment_method);
@@ -32,10 +31,8 @@ function summarizePackage(pkg) {
     bookingCount: active.length,
     reservedTravelers,
     confirmedBookingCount: confirmed.length,
-    confirmedTravelers: confirmed.reduce((sum, booking) => sum + booking.adult_count + booking.child_count, 0),
-    targetBookings,
-    bookingGap: targetBookings == null ? null : confirmed.length - targetBookings,
-    bookingTargetInferred: pkg.target_bookings == null && pkg.minimum_travelers != null,
+    confirmedTravelers,
+    travelerGap: pkg.minimum_travelers == null ? null : confirmedTravelers - pkg.minimum_travelers,
     paidBookingCount: paid.length,
     paidAdults,
     paidChildren,

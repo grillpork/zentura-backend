@@ -129,7 +129,7 @@ router.get("/", async (req, res) => {
       },
       orderBy: { id: "desc" },
     });
-    return res.status(200).json(data.map(({ target_travelers, minimum_travelers, target_bookings, ...pkg }) => pkg));
+    return res.status(200).json(data.map(({ target_travelers, minimum_travelers, ...pkg }) => pkg));
   } catch (error) {
     console.error("Get packages error:", error);
     return res.status(500).json({ message: "Server error", error: error.message });
@@ -140,7 +140,7 @@ router.get("/:id/costs", ...backofficeOnly, async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ message: "รหัสแพ็กเกจไม่ถูกต้อง" });
   try {
-    const data = await prisma.package.findUnique({ where: { id }, select: { target_travelers: true, minimum_travelers: true, target_bookings: true, costItems: { orderBy: { id: "asc" } }, packageBuses: { select: { bus: { select: { layout: true } } } } } });
+    const data = await prisma.package.findUnique({ where: { id }, select: { target_travelers: true, minimum_travelers: true, costItems: { orderBy: { id: "asc" } }, packageBuses: { select: { bus: { select: { layout: true } } } } } });
     if (!data) return res.status(404).json({ message: "ไม่พบแพ็กเกจ" });
     const { seatList } = require("../lib/seats.js");
     const { packageBuses, ...costData } = data;
@@ -219,7 +219,7 @@ router.get("/:id", async (req, res) => {
       },
     });
     if (!data) return res.status(404).json({ message: "Package not found" });
-    const { target_travelers, minimum_travelers, target_bookings, ...publicPackage } = data;
+    const { target_travelers, minimum_travelers, ...publicPackage } = data;
     return res.status(200).json(publicPackage);
   } catch (error) {
     return res.status(500).json({ message: "Server error", error: error.message });
@@ -360,7 +360,6 @@ router.post("/", ...backofficeOnly, async (req, res) => {
           insurance_plan_id: insurancePlanId ?? null,
           target_travelers: resolvedCosts.target_travelers,
           minimum_travelers: resolvedCosts.minimum_travelers,
-          target_bookings: resolvedCosts.target_bookings,
           ...(costs && { costItems: { create: resolvedCosts.items } }),
           status: status || "Draft",
           start_date: calculatedStartDate,
@@ -576,7 +575,7 @@ router.put("/:id", ...backofficeOnly, async (req, res) => {
 
     const result = await prisma.$transaction(async (tx) => {
       const current = await tx.package.findUnique({ where: { id }, select: {
-        minimum_travelers: true, target_bookings: true, location_id: true, partner_id: true,
+        minimum_travelers: true, location_id: true, partner_id: true,
         packageBuses: { select: { bus_id: true } },
         dayplans: { select: { location_id: true, hotel: true, activities: { select: { landmark: true, activity: true, status: true } } } },
         partners: { select: { partner_id: true } },
@@ -591,7 +590,7 @@ router.put("/:id", ...backofficeOnly, async (req, res) => {
         locationIds: selectedLocationIds(effectiveLocationId, effectiveDays),
         partnerIds: selectedPartnerIds(partner_id === undefined ? current.partner_id : primaryPartnerId, effectivePartnerIds),
         days: effectiveDays,
-      }, current.minimum_travelers, current.target_bookings);
+      }, current.minimum_travelers);
       // Update basic info & partner
       const updatedPackage = await tx.package.update({
         where: { id },
@@ -604,7 +603,6 @@ router.put("/:id", ...backofficeOnly, async (req, res) => {
           ...(insurancePlanId !== undefined && { insurance_plan_id: insurancePlanId }),
           target_travelers: resolvedCosts.target_travelers,
           minimum_travelers: resolvedCosts.minimum_travelers,
-          target_bookings: resolvedCosts.target_bookings,
           status: status || "Draft",
           start_date: calculatedStartDate,
           end_date: calculatedEndDate,
