@@ -3,14 +3,15 @@ const { prisma } = require("../config/db.js");
 const { authMiddleware } = require("../middlewares/authMiddleware.js");
 const { seatList } = require("../lib/seats.js");
 const { travelDay, validateAssignments } = require("../lib/seating.js");
+const { employeePortal } = require("../lib/employeePortal.js");
 
 const router = Router();
 
 router.use(authMiddleware, async (req, res, next) => {
   try {
-    if (req.user?.isEmployee !== true) return res.status(403).json({ message: "สำหรับพนักงานหลังบ้านเท่านั้น" });
+    if (req.user?.isEmployee !== true || req.user.portal !== "backoffice") return res.status(403).json({ message: "สำหรับพนักงานหลังบ้านเท่านั้น" });
     const employee = await prisma.emp.findUnique({ where: { id: req.user.id }, include: { Role: true } });
-    if (!employee || employee.email !== req.user.email || employee.status === "ปิดใช้งาน" || employee.Role?.name?.toLowerCase() === "suppler") {
+    if (!employee || employee.email !== req.user.email || employee.status === "ปิดใช้งาน" || employee.isPasswordSet !== 1 || employeePortal(employee.Role?.name) !== "backoffice") {
       return res.status(403).json({ message: "ไม่มีสิทธิ์จัดที่นั่ง" });
     }
     next();

@@ -2,11 +2,13 @@ const { Router } = require("express");
 const { prisma } = require("../config/db.js");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
+const { backofficeOnly } = require("../middlewares/backofficeOnly.js");
+const { employeePortal } = require("../lib/employeePortal.js");
 
 const employeeRoute = Router();
 
 // GET all employees (ซ่อนบัญชี role suppler ออกจากหน้ารายการพนักงานทั่วไป)
-employeeRoute.get("/employee", async (req, res) => {
+employeeRoute.get("/employee", ...backofficeOnly, async (req, res) => {
   try {
     const { role, only_supplier, include_supplier } = req.query;
     let where = {};
@@ -93,7 +95,7 @@ employeeRoute.get("/employee", async (req, res) => {
 });
 
 // GET single employee by ID
-employeeRoute.get("/employee/:id", async (req, res) => {
+employeeRoute.get("/employee/:id", ...backofficeOnly, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) {
@@ -169,7 +171,7 @@ async function resolveRoleId(roleId, position) {
 }
 
 // POST create employee
-employeeRoute.post("/employee", async (req, res) => {
+employeeRoute.post("/employee", ...backofficeOnly, async (req, res) => {
   try {
     const { name, email, phone, roleId, position, status, password, lineId, age } = req.body;
 
@@ -240,7 +242,7 @@ employeeRoute.post("/employee", async (req, res) => {
 });
 
 // PUT update employee
-employeeRoute.put("/employee/:id", async (req, res) => {
+employeeRoute.put("/employee/:id", ...backofficeOnly, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) {
@@ -328,7 +330,7 @@ employeeRoute.put("/employee/:id", async (req, res) => {
 });
 
 // DELETE employee
-employeeRoute.delete("/employee/:id", async (req, res) => {
+employeeRoute.delete("/employee/:id", ...backofficeOnly, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) {
@@ -350,7 +352,7 @@ employeeRoute.delete("/employee/:id", async (req, res) => {
 });
 
 // POST generate mock employees
-employeeRoute.post("/employee/generate-mock", async (req, res) => {
+employeeRoute.post("/employee/generate-mock", ...backofficeOnly, async (req, res) => {
   try {
     const count = parseInt(req.body?.count || 20, 10);
     const thaiNames = [
@@ -415,7 +417,7 @@ employeeRoute.post("/employee/generate-mock", async (req, res) => {
 });
 
 // GET all roles (ซ่อน role suppler ออกจากตัวเลือกตำแหน่งพนักงานทั่วไป)
-employeeRoute.get("/roles", async (req, res) => {
+employeeRoute.get("/roles", ...backofficeOnly, async (req, res) => {
   try {
     const { include_supplier } = req.query;
     const where = include_supplier === "true"
@@ -438,7 +440,7 @@ employeeRoute.get("/roles", async (req, res) => {
 });
 
 // Alias for /role
-employeeRoute.get("/role", async (req, res) => {
+employeeRoute.get("/role", ...backofficeOnly, async (req, res) => {
   try {
     const { include_supplier } = req.query;
     const where = include_supplier === "true"
@@ -461,7 +463,7 @@ employeeRoute.get("/role", async (req, res) => {
 });
 
 // POST /auth/login & /employee/login (Employee login)
-const handleEmployeeLogin = async (req, res) => {
+const handleEmployeeLogin = (portal) => async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {
@@ -493,8 +495,8 @@ const handleEmployeeLogin = async (req, res) => {
       return res.status(401).json({ success: false, message: "อีเมล์หรือรหัสผ่านไม่ถูกต้อง" });
     }
 
-    if (emp.Role?.name?.toLowerCase() === "suppler") {
-      return res.status(403).json({ success: false, message: "บัญชี Supplier ใช้งานได้ที่หน้า /supplier/login เท่านั้น" });
+    if (employeePortal(emp.Role?.name) !== portal) {
+      return res.status(403).json({ success: false, message: "บัญชีนี้ใช้เข้าสู่ระบบที่หน้าอื่นตามบทบาทที่ได้รับ" });
     }
 
     const user = {
@@ -513,18 +515,19 @@ const handleEmployeeLogin = async (req, res) => {
       success: true,
       message: "เข้าสู่ระบบสำเร็จ",
       user,
-      token: jwt.sign({ id: emp.id, email: emp.email, isEmployee: true, portal: "backoffice" }, process.env.JWT_SECRET || "fallback_secret_key_123", { expiresIn: "1d" }),
+      token: jwt.sign({ id: emp.id, email: emp.email, role: emp.Role.name, isEmployee: true, portal }, process.env.JWT_SECRET || "fallback_secret_key_123", { expiresIn: "1d" }),
     });
   } catch (error) {
     console.error("POST /auth/login error:", error);
     return res.status(500).json({ success: false, message: "เกิดข้อผิดพลาดในการเข้าสู่ระบบ", error: error.message });
   }
 };
-employeeRoute.post("/auth/login", handleEmployeeLogin);
-employeeRoute.post("/employee/login", handleEmployeeLogin);
+employeeRoute.post("/auth/login", handleEmployeeLogin("backoffice"));
+employeeRoute.post("/employee/login", handleEmployeeLogin("backoffice"));
+employeeRoute.post("/guide/login", handleEmployeeLogin("guide"));
 
 // POST /auth/set-password (First-time password change or reset)
-const handleSetPassword = async (req, res) => {
+const handleSetPassword = (portal) => async (req, res) => {
   try {
     const { employeeId, email, currentPassword, newPassword } = req.body;
 
@@ -544,6 +547,10 @@ const handleSetPassword = async (req, res) => {
 
     if (!emp) {
       return res.status(404).json({ success: false, message: "ไม่พบข้อมูลพนักงาน" });
+    }
+
+    if (employeePortal(emp.Role?.name) !== portal || emp.status === "ปิดใช้งาน") {
+      return res.status(403).json({ success: false, message: "บัญชีนี้ไม่มีสิทธิ์ใช้งานพอร์ทัลนี้" });
     }
 
     if (!currentPassword || (emp.password !== currentPassword && !(await bcrypt.compare(currentPassword, emp.password).catch(() => false)))) {
@@ -577,14 +584,15 @@ const handleSetPassword = async (req, res) => {
       success: true,
       message: "ตั้งรหัสผ่านใหม่เรียบร้อยแล้ว",
       user,
-      token: jwt.sign({ id: updated.id, email: updated.email, isEmployee: true, portal: "backoffice" }, process.env.JWT_SECRET || "fallback_secret_key_123", { expiresIn: "1d" }),
+      token: jwt.sign({ id: updated.id, email: updated.email, role: updated.Role.name, isEmployee: true, portal }, process.env.JWT_SECRET || "fallback_secret_key_123", { expiresIn: "1d" }),
     });
   } catch (error) {
     console.error("POST /auth/set-password error:", error);
     return res.status(500).json({ success: false, message: "เกิดข้อผิดพลาดในการตั้งรหัสผ่านใหม่", error: error.message });
   }
 };
-employeeRoute.post("/auth/set-password", handleSetPassword);
-employeeRoute.post("/employee/set-password", handleSetPassword);
+employeeRoute.post("/auth/set-password", handleSetPassword("backoffice"));
+employeeRoute.post("/employee/set-password", handleSetPassword("backoffice"));
+employeeRoute.post("/guide/set-password", handleSetPassword("guide"));
 
 module.exports = { employeeRoute };

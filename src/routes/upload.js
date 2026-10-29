@@ -2,6 +2,7 @@ const express = require("express");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const { backofficeOnly } = require("../middlewares/backofficeOnly.js");
 
 const router = express.Router();
 
@@ -43,7 +44,7 @@ const upload = multer({
 });
 
 // Upload multiple files
-router.post("/multiple", upload.array("images", 10), (req, res) => {
+router.post("/multiple", ...backofficeOnly, upload.array("images", 10), (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ message: "No files uploaded" });
@@ -70,7 +71,7 @@ router.post("/multiple", upload.array("images", 10), (req, res) => {
 });
 
 // Upload single file
-router.post("/single", upload.single("image"), (req, res) => {
+router.post("/single", ...backofficeOnly, upload.single("image"), (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: "No file uploaded" });

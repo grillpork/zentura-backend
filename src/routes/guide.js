@@ -1,12 +1,13 @@
 const express = require("express");
 const { prisma } = require("../config/db.js");
 const { authMiddleware } = require("../middlewares/authMiddleware.js");
+const { employeePortal } = require("../lib/employeePortal.js");
 
 const router = express.Router();
 
 router.use(authMiddleware, async (req, res, next) => {
   try {
-    if (req.user?.isEmployee !== true) {
+    if (req.user?.isEmployee !== true || !["guide", "backoffice"].includes(req.user?.portal)) {
       return res.status(403).json({ success: false, message: "สำหรับพนักงานหลังบ้านเท่านั้น" });
     }
     const employee = await prisma.emp.findUnique({
@@ -18,9 +19,9 @@ router.use(authMiddleware, async (req, res, next) => {
     }
 
     const role = employee.Role?.name?.toLowerCase();
-    const isAdmin = role === "admin";
-    const isGuide = role === "guide" || role === "ไกด์";
-    if (!isAdmin && !isGuide) {
+    const isAdmin = role === "admin" && req.user.portal === "backoffice";
+    const isGuide = employeePortal(employee.Role?.name) === "guide" && req.user.portal === "guide";
+    if ((!isAdmin && !isGuide) || employee.isPasswordSet !== 1) {
       return res.status(403).json({ success: false, message: "ไม่มีสิทธิ์เข้าถึงงานไกด์" });
     }
     const guideId = Number(req.query.guide_id || employee.id);
@@ -30,11 +31,17 @@ router.use(authMiddleware, async (req, res, next) => {
     if (!isAdmin && guideId !== employee.id) {
       return res.status(403).json({ success: false, message: "ดูงานของไกด์คนอื่นไม่ได้" });
     }
+    req.employee = employee;
     req.guideId = guideId;
     next();
   } catch (error) {
     next(error);
   }
+});
+
+router.get("/me", async (req, res) => {
+  if (req.user.portal !== "guide") return res.status(403).json({ success: false, message: "สำหรับไกด์เท่านั้น" });
+  return res.json({ success: true, user: { id: req.user.id, name: req.employee.name, email: req.employee.email, role: req.employee.Role.name, isEmployee: true } });
 });
 
 const bookingWhere = { status: "CONFIRMED" };

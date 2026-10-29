@@ -38,13 +38,15 @@ test("booking charges and enrolls only when the customer selects insurance", asy
     const body = { package_id: 2, travel_date: pkg.start_date.toISOString(), adult_count: 1,
       child_count: 0, contact_name: "Guest One", contact_phone: "0800000000", contact_email: "guest@example.org",
       travelers: [{ full_name: "Guest One", passenger_type: "adult", id_card_or_passport: "1234567890123", date_of_birth: "2000-10-22" }] };
-    const request = async (insuranceFields) => {
+    const request = async (insuranceFields, user = { id: 7, isEmployee: false }) => {
       const response = { status(code) { this.statusCode = code; return this; }, json(data) { this.body = data; return this; } };
       enrolled = false;
-      await handler({ body: { ...body, ...insuranceFields }, user: { id: 7, isEmployee: false, portal: "customer" } }, response);
+      await handler({ body: { ...body, ...insuranceFields }, user }, response);
       return response;
     };
 
+    assert.equal((await request({ insurance_selected: false }, { id: 7, isEmployee: true, portal: "guide" })).statusCode, 403);
+    assert.equal((await request({ insurance_selected: false }, { id: 7, portal: "supplier" })).statusCode, 403);
     assert.equal((await request({ insurance_selected: false, insurance_plan_id: 5 })).statusCode, 201);
     assert.equal(saved.insurance_opted_in, false);
     assert.equal(saved.insurance_total_satang, 0);

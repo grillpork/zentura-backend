@@ -1,5 +1,6 @@
 const { prisma } = require("../config/db.js");
 const { authMiddleware } = require("./authMiddleware.js");
+const { employeePortal } = require("../lib/employeePortal.js");
 
 const backofficeOnly = [authMiddleware, async (req, res, next) => {
   try {
@@ -10,7 +11,7 @@ const backofficeOnly = [authMiddleware, async (req, res, next) => {
       where: { id: req.user.id }, include: { Role: { select: { name: true } } }
     });
     if (!employee || employee.email !== req.user.email || employee.status === "ปิดใช้งาน" || employee.isPasswordSet !== 1 ||
-        employee.Role?.name?.toLowerCase() === "suppler") {
+        employeePortal(employee.Role?.name) !== "backoffice") {
       return res.status(403).json({ success: false, message: "ไม่มีสิทธิ์เข้าถึงข้อมูลหลังบ้าน" });
     }
     req.employee = employee;

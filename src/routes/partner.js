@@ -1,10 +1,11 @@
 const { prisma } = require("../config/db.js");
 const express = require("express");
+const { backofficeOnly } = require("../middlewares/backofficeOnly.js");
 
 const PartnerRouter = express.Router();
 
 
-PartnerRouter.get('/', async(req, res) => {
+PartnerRouter.get('/', ...backofficeOnly, async(req, res) => {
     try{
         const data = await prisma.partner.findMany({
         orderBy: {id: "asc"},
@@ -17,7 +18,7 @@ PartnerRouter.get('/', async(req, res) => {
     }
 });
 
-PartnerRouter.get('/:id', async(req, res) => {
+PartnerRouter.get('/:id', ...backofficeOnly, async(req, res) => {
     try{
         const id = parseInt(req.params.id)
         if(isNaN(id)){
@@ -37,7 +38,7 @@ PartnerRouter.get('/:id', async(req, res) => {
     }
 });
 
-PartnerRouter.post('/', async(req, res) => {
+PartnerRouter.post('/', ...backofficeOnly, async(req, res) => {
     try {
         const { name, phone, email, address, pt_type_id } = req.body;
         // 1. ตรวจสอบข้อมูลบังคับ
@@ -97,7 +98,7 @@ PartnerRouter.post('/', async(req, res) => {
     }
 });
 
-PartnerRouter.put('/:id', async (req, res) => {
+PartnerRouter.put('/:id', ...backofficeOnly, async (req, res) => {
     try{
         const id = parseInt(req.params.id);
         if(isNaN(id)){
@@ -160,7 +161,7 @@ PartnerRouter.put('/:id', async (req, res) => {
     }
 });
 
-PartnerRouter.delete('/:id', async (req, res) => {
+PartnerRouter.delete('/:id', ...backofficeOnly, async (req, res) => {
     try{
         const id = parseInt(req.params.id);
         if(isNaN(id)){

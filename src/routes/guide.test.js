@@ -35,9 +35,9 @@ test("guide API returns assigned trips and protects customer details", async () 
     }],
   };
   const employees = {
-    1: { id: 1, email: "admin@example.com", status: "ใช้งาน", Role: { name: "Admin" } },
-    2: { id: 2, email: "guide@example.com", name: "Guide One", status: "ใช้งาน", Role: { name: "ไกด์" } },
-    3: { id: 3, email: "other@example.com", name: "Guide Two", status: "ใช้งาน", Role: { name: "ไกด์" } },
+    1: { id: 1, email: "admin@example.com", status: "ใช้งาน", isPasswordSet: 1, Role: { name: "Admin" } },
+    2: { id: 2, email: "guide@example.com", name: "Guide One", status: "ใช้งาน", isPasswordSet: 1, Role: { name: "ไกด์" } },
+    3: { id: 3, email: "other@example.com", name: "Guide Two", status: "ใช้งาน", isPasswordSet: 1, Role: { name: "ไกด์" } },
   };
   let detailQuery;
   require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: { prisma: {
@@ -60,13 +60,16 @@ test("guide API returns assigned trips and protects customer details", async () 
     const instance = app.listen(0, "127.0.0.1", () => resolve(instance));
   });
   const origin = `http://127.0.0.1:${server.address().port}`;
-  const request = (path, employee) => fetch(`${origin}${path}`, {
-    headers: employee ? { Authorization: `Bearer ${jwt.sign({ id: employee.id, email: employee.email, isEmployee: true }, process.env.JWT_SECRET)}` } : {},
+  const request = (path, employee, portal = employee?.Role?.name === "Admin" ? "backoffice" : "guide") => fetch(`${origin}${path}`, {
+    headers: employee ? { Authorization: `Bearer ${jwt.sign({ id: employee.id, email: employee.email, isEmployee: true, portal }, process.env.JWT_SECRET)}` } : {},
   });
 
   try {
     assert.equal((await request("/api/guide/packages?guide_id=2")).status, 401);
     assert.equal((await request("/api/guide/packages?guide_id=3", employees[2])).status, 403);
+    assert.equal((await request("/api/guide/packages?guide_id=2", employees[2], "backoffice")).status, 403);
+    assert.equal((await request("/api/guide/packages?guide_id=2", employees[1], "guide")).status, 403);
+    assert.equal((await request("/api/guide/me", employees[2])).status, 200);
 
     const listResponse = await request("/api/guide/packages?guide_id=2", employees[1]);
     assert.equal(listResponse.status, 200);
@@ -75,11 +78,11 @@ test("guide API returns assigned trips and protects customer details", async () 
     assert.equal(list.packages.ongoing[0].name, "River tour");
     assert.deepEqual(list.package_ids.all, [9]);
 
-    const idsResponse = await request("/api/guide/packages/ids?guide_id=2", employees[2]);
+    const idsResponse = await request("/api/guide/packages/ids?guide_id=2", employees[1]);
     assert.equal(idsResponse.status, 200);
     assert.deepEqual((await idsResponse.json()).package_ids.all, [9]);
 
-    const detailResponse = await request("/api/guide/packages/9?guide_id=2", employees[2]);
+    const detailResponse = await request("/api/guide/packages/9?guide_id=2", employees[1]);
     assert.equal(detailResponse.status, 200);
     const detail = (await detailResponse.json()).data;
     assert.equal(detail.customers_summary.total_passengers, 1);

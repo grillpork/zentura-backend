@@ -3,6 +3,8 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const { prisma } = require("../config/db.js");
 const { authMiddleware } = require("../middlewares/authMiddleware.js");
+const { backofficeOnly } = require("../middlewares/backofficeOnly.js");
+const { buildSupplierTrips } = require("../services/supplierTrips.js");
 
 const SupplierRouter = express.Router();
 
@@ -54,30 +56,15 @@ const signToken = (emp) =>
 // token ต้องออกจาก /supplier/login เท่านั้น (portal = supplier) token ของ backoffice ใช้ไม่ได้
 const supplierOnly = [
   authMiddleware,
-  (req, res, next) =>
-    req.user?.portal === "supplier"
-      ? next()
-      : res.status(403).json({ success: false, message: "ไม่มีสิทธิ์เข้าถึง (สำหรับ Supplier เท่านั้น)" }),
-];
-
-const backofficeOnly = [
-  authMiddleware,
   async (req, res, next) => {
     try {
-      if (req.user?.isEmployee !== true) {
-        return res.status(403).json({ success: false, message: "ไม่มีสิทธิ์เข้าถึง" });
-      }
-      const emp = await prisma.emp.findUnique({
-        where: { id: req.user.id },
-        include: { Role: true },
-      });
-      if (!emp || emp.email !== req.user.email || isSupplier(emp) || emp.status === "ปิดใช้งาน") {
+      if (req.user?.portal !== "supplier") return res.status(403).json({ success: false, message: "สำหรับ Supplier เท่านั้น" });
+      const emp = await prisma.emp.findUnique({ where: { id: req.user.id }, include: { Role: true } });
+      if (!isSupplier(emp) || emp.email !== req.user.email || emp.status === "ปิดใช้งาน" || emp.isPasswordSet !== 1 || emp.partner_id !== req.user.partnerId) {
         return res.status(403).json({ success: false, message: "ไม่มีสิทธิ์เข้าถึง" });
       }
       next();
-    } catch (error) {
-      next(error);
-    }
+    } catch (error) { next(error); }
   },
 ];
 
@@ -195,29 +182,34 @@ SupplierRouter.get("/trips", supplierOnly, async (req, res) => {
       });
     }
 
-    // ดึง Package ทั้งหมดที่มี location หลักตรงกัน หรือมี DayplanTimeline วันใดวันหนึ่งแวะสถานที่นี้
+    // แสดงเฉพาะแพ็กเกจที่ใช้พาร์ทเนอร์นี้และระบุจุดแวะของร้านไว้ในกำหนดการ
     const packages = await prisma.package.findMany({
       where: {
-        OR: [
-          { location_id: location.id },
-          { dayplans: { some: { location_id: location.id } } },
+        dayplans: { some: { location_id: location.id } },
+        AND: [
+          { OR: [
+            { partner_id: partner.id },
+            { partners: { some: { partner_id: partner.id } } },
+            { costItems: { some: { partner_id: partner.id } } },
+          ] },
+          { OR: [
+            { status: { equals: "Published", mode: "insensitive" } },
+            { bookings: { some: { status: "CONFIRMED" } } },
+          ] },
         ],
       },
-      include: {
-        location: { select: { id: true, name: true } },
-        dayplans: {
-          include: { location: { select: { id: true, name: true } } },
-          orderBy: { day_num: "asc" },
-        },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        start_date: true,
+        dayplans: { select: { day_num: true, location_id: true } },
+        packageBuses: { select: { bus: { select: { id: true, name: true, plate: true } } } },
         bookings: {
-          where: {
-            status: { in: ["CONFIRMED", "AWAITING_VERIFICATION", "PENDING_PAYMENT"] },
-          },
+          where: { status: "CONFIRMED" },
           select: {
-            id: true,
             adult_count: true,
             child_count: true,
-            status: true,
             travel_date: true,
           },
         },
@@ -225,51 +217,11 @@ SupplierRouter.get("/trips", supplierOnly, async (req, res) => {
       orderBy: { start_date: "asc" },
     });
 
-    // ดึงรถบัสที่มีในระบบเพื่อใช้จับคู่/แสดงผล
-    const buses = await prisma.bus.findMany({
-      where: { status: "ACTIVE" },
-      orderBy: { id: "asc" },
-    });
-
-    const trips = [];
-    packages.forEach((pkg, idx) => {
-      const totalPassengers = pkg.bookings.reduce(
-        (sum, b) => sum + (b.adult_count || 0) + (b.child_count || 0),
-        0
-      );
-
-      // คำนวณจำนวนรถบัสคร่าวๆ (ถ้ามี 30-45 คนต่อคัน หรือใช้รถบัสที่ผูกไว้)
-      const busAssigned = buses[idx % (buses.length || 1)] || null;
-      const busCount = totalPassengers > 0 ? Math.max(1, Math.ceil(totalPassengers / 40)) : 1;
-
-      // หาวันที่แวะจุดนี้
-      const stopDays = pkg.dayplans
-        .filter((dp) => dp.location_id === location.id)
-        .map((dp) => dp.day_num);
-
-      trips.push({
-        id: pkg.id,
-        packageName: pkg.name,
-        packageStatus: pkg.status,
-        startDate: pkg.start_date,
-        endDate: pkg.end_date,
-        locationName: location.name,
-        isMainLocation: pkg.location_id === location.id,
-        stopDays: stopDays.length > 0 ? stopDays : [1],
-        busCount,
-        busName: busAssigned ? busAssigned.name : `บัส ${idx + 1}`,
-        busPlate: busAssigned?.plate || "รอกำหนด",
-        bookingCount: pkg.bookings.length,
-        passengerCount: totalPassengers,
-        timeWindow: "08:00 - 17:00", // ช่วงเวลาเดินทางในวัน
-      });
-    });
-
     return res.json({
       success: true,
       partner: { id: partner.id, name: partner.name },
       location: { id: location.id, name: location.name },
-      trips,
+      trips: buildSupplierTrips(packages, location),
     });
   } catch (error) {
     console.error("SUPPLIER TRIPS ERROR:", error);

@@ -1,5 +1,6 @@
 const { prisma } = require("../config/db.js");
 const express = require("express");
+const { backofficeOnly } = require("../middlewares/backofficeOnly.js");
 
 const PartnerTypeRouter = express.Router();
 
@@ -40,7 +41,7 @@ PartnerTypeRouter.get('/:id', async (req, res) => {
 })
 
 //สร้าง partner type
-PartnerTypeRouter.post('/', async (req, res) => {
+PartnerTypeRouter.post('/', ...backofficeOnly, async (req, res) => {
     try{
         //รับค่า name จาก body
         const {name} = req.body;
@@ -71,7 +72,7 @@ PartnerTypeRouter.post('/', async (req, res) => {
 })
 
 //update partner type
-PartnerTypeRouter.put('/:id', async(req,res) => {
+PartnerTypeRouter.put('/:id', ...backofficeOnly, async(req,res) => {
     try{
         const id = parseInt(req.params.id);
          if (isNaN(id)) {
@@ -103,7 +104,7 @@ PartnerTypeRouter.put('/:id', async(req,res) => {
 }
 });
 
-PartnerTypeRouter.delete('/:id', async(req, res) => {
+PartnerTypeRouter.delete('/:id', ...backofficeOnly, async(req, res) => {
     try{
         const id = parseInt(req.params.id);
         if(isNaN(id)){

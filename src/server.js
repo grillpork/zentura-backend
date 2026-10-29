@@ -21,6 +21,7 @@ const insuranceRoutes = require("./routes/insurance.js");
 const { employeeRoute } = require("./routes/employee.js");
 const { positionRoute } = require("./routes/position.js");
 const { prisma } = require("./config/db.js");
+const { backofficeOnly } = require("./middlewares/backofficeOnly.js");
 
 const server = express();
 const PORT = process.env.PORT || 4000;
@@ -72,7 +73,7 @@ server.use("/api/collaps", collabRoutes);
 server.use("/collaps", collabRoutes);
 
 
-server.get("/role", async (req, res) => {
+server.get("/role", ...backofficeOnly, async (req, res) => {
   try {
     const data = await prisma.role.findMany({
       select: {

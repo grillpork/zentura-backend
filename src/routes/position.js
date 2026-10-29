@@ -1,10 +1,11 @@
 const { Router } = require("express");
 const { prisma } = require("../config/db.js");
+const { backofficeOnly } = require("../middlewares/backofficeOnly.js");
 
 const positionRoute = Router();
 
 // GET all positions (excluding customer if desired or include all roles)
-positionRoute.get("/position", async (req, res) => {
+positionRoute.get("/position", ...backofficeOnly, async (req, res) => {
   try {
     const list = await prisma.role.findMany({
       include: {
@@ -37,7 +38,7 @@ positionRoute.get("/position", async (req, res) => {
 });
 
 // GET single position by ID
-positionRoute.get("/position/:id", async (req, res) => {
+positionRoute.get("/position/:id", ...backofficeOnly, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) {
@@ -78,7 +79,7 @@ positionRoute.get("/position/:id", async (req, res) => {
 });
 
 // POST create position
-positionRoute.post("/position", async (req, res) => {
+positionRoute.post("/position", ...backofficeOnly, async (req, res) => {
   try {
     const { title, name, access } = req.body;
     const roleName = (title || name || "").trim();
@@ -129,7 +130,7 @@ positionRoute.post("/position", async (req, res) => {
 });
 
 // PUT update position
-positionRoute.put("/position/:id", async (req, res) => {
+positionRoute.put("/position/:id", ...backofficeOnly, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) {
@@ -199,7 +200,7 @@ positionRoute.put("/position/:id", async (req, res) => {
 });
 
 // DELETE position
-positionRoute.delete("/position/:id", async (req, res) => {
+positionRoute.delete("/position/:id", ...backofficeOnly, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) {

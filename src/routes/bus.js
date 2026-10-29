@@ -1,6 +1,7 @@
 const { Router } = require("express");
 const { prisma } = require("../config/db.js");
 const { seatList, validateLayout } = require("../lib/seats.js");
+const { backofficeOnly } = require("../middlewares/backofficeOnly.js");
 
 const BusRoute = Router();
 
@@ -39,7 +40,7 @@ BusRoute.get("/", async (req, res) => {
   }
 });
 
-BusRoute.post("/", async (req, res) => {
+BusRoute.post("/", ...backofficeOnly, async (req, res) => {
   try {
     const { data, error } = parseBus(req.body);
     if (error) return res.status(400).json({ success: false, message: error });
@@ -53,7 +54,7 @@ BusRoute.post("/", async (req, res) => {
 });
 
 // แก้ไขข้อมูล/ผัง/สถานะ (หยุดใช้, แจ้งรถเสีย ใช้ endpoint นี้ตัวเดียว)
-BusRoute.put("/:id", async (req, res) => {
+BusRoute.put("/:id", ...backofficeOnly, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) return res.status(400).json({ success: false, message: "รหัสรถไม่ถูกต้อง" });
@@ -87,7 +88,7 @@ BusRoute.put("/:id", async (req, res) => {
   }
 });
 
-BusRoute.delete("/:id", async (req, res) => {
+BusRoute.delete("/:id", ...backofficeOnly, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) return res.status(400).json({ success: false, message: "รหัสรถไม่ถูกต้อง" });

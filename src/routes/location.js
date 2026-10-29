@@ -1,5 +1,6 @@
 const { prisma } = require("../config/db.js");
 const express = require("express");
+const { backofficeOnly } = require("../middlewares/backofficeOnly.js");
 
 const LocationRouter = express.Router();
 
@@ -71,7 +72,7 @@ LocationRouter.get("/location_type/:id", async (req, res) => {
 });
 
 // Create location
-LocationRouter.post("/", async (req, res) => {
+LocationRouter.post("/", ...backofficeOnly, async (req, res) => {
   try {
     const { name, lct_type_id } = req.body;
 
@@ -109,7 +110,7 @@ LocationRouter.post("/", async (req, res) => {
 });
 
 // Update location
-LocationRouter.put("/:id", async (req, res) => {
+LocationRouter.put("/:id", ...backofficeOnly, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     if (isNaN(id)) {
@@ -156,7 +157,7 @@ LocationRouter.put("/:id", async (req, res) => {
 });
 
 // Delete location
-LocationRouter.delete("/:id", async (req, res) => {
+LocationRouter.delete("/:id", ...backofficeOnly, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     if (isNaN(id)) {

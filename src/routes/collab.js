@@ -158,6 +158,7 @@ router.get("/booking/:bookingId", async (req, res) => {
 
 router.get("/my", authMiddleware, async (req, res) => {
   try {
+    if (req.user.isEmployee || req.user.portal) return res.status(403).json({ success: false, message: "สำหรับลูกค้าเท่านั้น" });
     const userId = req.user.id;
 
     const myCollaps = await prisma.bookingCollaps.findMany({

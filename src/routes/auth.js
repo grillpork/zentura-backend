@@ -3,6 +3,7 @@ const { prisma } = require('../config/db.js');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { authMiddleware } = require('../middlewares/authMiddleware.js');
+const { employeePortal } = require('../lib/employeePortal.js');
 
 const router = express.Router();
 
@@ -119,7 +120,11 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        // 2. Check Backoffice Employee (Emp) if not a customer User
+        if (isEmployee !== true) {
+            return res.status(401).json({ success: false, message: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' });
+        }
+
+        // 2. Check Backoffice Employee (Emp) only when the employee portal was requested
         const emp = await prisma.emp.findFirst({
             where: {
                 email: {
@@ -151,8 +156,8 @@ router.post('/login', async (req, res) => {
                 return res.status(401).json({ success: false, message: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' });
             }
 
-            if (emp.Role?.name?.toLowerCase() === 'suppler') {
-                return res.status(403).json({ success: false, message: 'บัญชี Supplier ใช้งานได้ที่หน้า /supplier/login เท่านั้น' });
+            if (employeePortal(emp.Role?.name) !== 'backoffice') {
+                return res.status(403).json({ success: false, message: 'บัญชีนี้ใช้เข้าสู่ระบบที่หน้าอื่นตามบทบาทที่ได้รับ' });
             }
 
             const token = jwt.sign(
@@ -217,8 +222,8 @@ router.post('/set-password', async (req, res) => {
             return res.status(404).json({ success: false, message: 'ไม่พบข้อมูลพนักงาน' });
         }
 
-        if (emp.Role?.name?.toLowerCase() === 'suppler') {
-            return res.status(403).json({ success: false, message: 'บัญชี Supplier ใช้งานได้ที่หน้า /supplier/login เท่านั้น' });
+        if (employeePortal(emp.Role?.name) !== 'backoffice' || emp.status === 'ปิดใช้งาน') {
+            return res.status(403).json({ success: false, message: 'บัญชีนี้ไม่มีสิทธิ์ใช้งาน Backoffice' });
         }
 
         const matchesCurrentPassword = currentPassword && (
@@ -309,7 +314,7 @@ router.get('/me', authMiddleware, async (req, res) => {
             }
         }) : null;
 
-        if (emp && emp.email === req.user.email && emp.status !== 'ปิดใช้งาน') {
+        if (emp && emp.email === req.user.email && emp.status !== 'ปิดใช้งาน' && emp.isPasswordSet === 1 && employeePortal(emp.Role?.name) === 'backoffice') {
             return res.status(200).json({
                 user: {
                     id: emp.id,
@@ -388,8 +393,8 @@ router.put('/profile', authMiddleware, async (req, res) => {
             return res.status(200).json({ success: true, message: 'บันทึกข้อมูลโปรไฟล์เรียบร้อยแล้ว', user: updated });
         }
 
-        const emp = type === 'employee' ? await prisma.emp.findUnique({ where: { id: userId } }) : null;
-        if (emp && emp.email === req.user.email && emp.status !== 'ปิดใช้งาน') {
+        const emp = type === 'employee' ? await prisma.emp.findUnique({ where: { id: userId }, include: { Role: { select: { name: true } } } }) : null;
+        if (emp && emp.email === req.user.email && emp.status !== 'ปิดใช้งาน' && emp.isPasswordSet === 1 && employeePortal(emp.Role?.name) === 'backoffice') {
             const updatedEmp = await prisma.emp.update({
                 where: { id: userId },
                 data: {
@@ -465,8 +470,8 @@ router.post('/change-password', authMiddleware, async (req, res) => {
             return res.status(200).json({ success: true, message: 'เปลี่ยนรหัสผ่านสำเร็จเรียบร้อยแล้ว' });
         }
 
-        const emp = type === 'employee' ? await prisma.emp.findUnique({ where: { id: userId } }) : null;
-        if (emp && emp.email === req.user.email && emp.status !== 'ปิดใช้งาน') {
+        const emp = type === 'employee' ? await prisma.emp.findUnique({ where: { id: userId }, include: { Role: { select: { name: true } } } }) : null;
+        if (emp && emp.email === req.user.email && emp.status !== 'ปิดใช้งาน' && emp.isPasswordSet === 1 && employeePortal(emp.Role?.name) === 'backoffice') {
             let isMatch = emp.password === currentPassword;
             if (!isMatch) {
                 try {

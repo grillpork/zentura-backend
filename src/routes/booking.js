@@ -2,6 +2,7 @@ const { prisma } = require("../config/db.js");
 const express = require("express");
 const { authMiddleware } = require("../middlewares/authMiddleware.js");
 const { backofficeOnly } = require("../middlewares/backofficeOnly.js");
+const { employeePortal } = require("../lib/employeePortal.js");
 const { markInsurancePaid, markInsuranceCancelled } = require("../services/bookingInsurance.js");
 const { thaiDate, dateOnly, prepareTravelers } = require("../services/insuranceRules.js");
 const { summarizePackage } = require("../services/bookingDashboard.js");
@@ -12,13 +13,13 @@ const stripe = new
 const BookingRouter = express.Router();
 
 async function canViewBooking(req, booking) {
-    if (!req.user?.isEmployee) return booking.user_id === req.user?.id;
+    if (!req.user?.isEmployee) return !req.user?.portal && booking.user_id === req.user?.id;
     if (req.user.portal !== "backoffice") return false;
     const employee = await prisma.emp.findUnique({
         where: { id: req.user.id }, include: { Role: { select: { name: true } } }
     });
     return Boolean(employee && employee.email === req.user.email && employee.status !== "ปิดใช้งาน" &&
-        employee.isPasswordSet === 1 && employee.Role?.name?.toLowerCase() !== "suppler");
+        employee.isPasswordSet === 1 && employeePortal(employee.Role?.name) === "backoffice");
 }
 
 
@@ -128,6 +129,7 @@ async function deductBookingPointsOnCancel(tx, bookingId) {
 
 BookingRouter.post("/", authMiddleware, async (req, res) => {
     try {
+        if (req.user.isEmployee || req.user.portal) return res.status(403).json({ message: "สำหรับลูกค้าเท่านั้น" });
         const {
             package_id,
             travel_date,
@@ -972,7 +974,7 @@ BookingRouter.post("/:code/cancel", authMiddleware, async (req, res) => {
         if (!booking) {
             return res.status(404).json({ success: false, message: "ไม่พบข้อมูลการจองนี้" });
         }
-        if (booking.user_id !== req.user.id || req.user.isEmployee) return res.status(403).json({ success: false, message: "ไม่มีสิทธิ์ยกเลิกการจองนี้" });
+        if (booking.user_id !== req.user.id || req.user.isEmployee || req.user.portal) return res.status(403).json({ success: false, message: "ไม่มีสิทธิ์ยกเลิกการจองนี้" });
 
         if (booking.status === "CANCELLED") {
             return res.status(400).json({ success: false, message: "รายการจองนี้ถูกยกเลิกไปแล้ว" });
@@ -1020,7 +1022,7 @@ BookingRouter.post("/:code/create-stripe-session", authMiddleware, async (req, r
         if (!booking) {
             return res.status(404).json({ success: false, message: "ไม่พบข้อมูลการจอง" });
         }
-        if (booking.user_id !== req.user.id || req.user.isEmployee) return res.status(403).json({ success: false, message: "ไม่มีสิทธิ์ชำระการจองนี้" });
+        if (booking.user_id !== req.user.id || req.user.isEmployee || req.user.portal) return res.status(403).json({ success: false, message: "ไม่มีสิทธิ์ชำระการจองนี้" });
         if (booking.status === "CANCELLED") return res.status(409).json({ success: false, message: "การจองนี้ถูกยกเลิกแล้ว" });
         if (booking.payments.length > 0) {
             return res.status(400).json({ success: false, message: "รายการจองนี้ชำระเงินเรียบร้อยแล้ว" });
@@ -1123,7 +1125,7 @@ BookingRouter.get("/:code/verify-stripe", authMiddleware, async (req, res) => {
             if (!booking) {
                 return res.status(404).json({ success: false, message: "ไม่พบการจอง" });
             }
-            if (booking.user_id !== req.user.id || req.user.isEmployee) return res.status(403).json({ success: false, message: "ไม่มีสิทธิ์เข้าถึงการจองนี้" });
+            if (booking.user_id !== req.user.id || req.user.isEmployee || req.user.portal) return res.status(403).json({ success: false, message: "ไม่มีสิทธิ์เข้าถึงการจองนี้" });
             const paidBooking = await confirmStripePayment(booking, session);
             if (paidBooking.status === "PAYMENT_EXCEPTION") return res.status(409).json({ success: false, message: "รับชำระหลังยกเลิกการจองแล้ว กรุณาติดต่อเจ้าหน้าที่เรื่องคืนเงิน" });
             return res.status(200).json({
