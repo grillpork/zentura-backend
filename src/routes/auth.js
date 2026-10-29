@@ -109,6 +109,9 @@ router.post('/login', async (req, res) => {
                     phone: user.phone || '',
                     lineId: user.lineId || '',
                     age: user.age || null,
+                    title: user.title || 'นาย',
+                    id_card_or_passport: user.id_card_or_passport || '',
+                    date_of_birth: user.date_of_birth || null,
                     roleId: user.roleId,
                     role: user.role?.name,
                     points: user.points || 0
@@ -283,6 +286,9 @@ router.get('/me', authMiddleware, async (req, res) => {
                 phone: true,
                 lineId: true,
                 age: true,
+                title: true,
+                id_card_or_passport: true,
+                date_of_birth: true,
                 points: true,
                 roleId: true,
                 role: { select: { id: true, name: true } },
@@ -333,13 +339,23 @@ router.get('/me', authMiddleware, async (req, res) => {
 // Update profile for user or employee
 router.put('/profile', authMiddleware, async (req, res) => {
     try {
-        const { name, phone, lineId, age } = req.body;
+        const { name, phone, lineId, age, title, id_card_or_passport, date_of_birth } = req.body;
         const userId = req.user.id;
         const type = accountType(req.user);
         if (!type) return res.status(403).json({ success: false, message: 'บัญชีนี้ไม่มีสิทธิ์แก้ไขโปรไฟล์' });
 
         const user = type === 'customer' ? await prisma.user.findUnique({ where: { id: userId } }) : null;
         if (user && user.email === req.user.email) {
+            let parsedDob = undefined;
+            if (date_of_birth !== undefined) {
+                if (!date_of_birth) {
+                    parsedDob = null;
+                } else {
+                    const dStr = String(date_of_birth).slice(0, 10);
+                    parsedDob = /^\d{4}-\d{2}-\d{2}$/.test(dStr) ? new Date(`${dStr}T00:00:00.000Z`) : null;
+                }
+            }
+
             const updated = await prisma.user.update({
                 where: { id: userId },
                 data: {
@@ -347,6 +363,9 @@ router.put('/profile', authMiddleware, async (req, res) => {
                     phone: phone !== undefined ? (phone ? phone.trim() : null) : user.phone,
                     lineId: lineId !== undefined ? (lineId ? lineId.trim() : null) : user.lineId,
                     age: age !== undefined ? (age ? parseInt(age) : null) : user.age,
+                    title: title !== undefined ? (title ? title.trim() : null) : user.title,
+                    id_card_or_passport: id_card_or_passport !== undefined ? (id_card_or_passport ? id_card_or_passport.trim() : null) : user.id_card_or_passport,
+                    ...(parsedDob !== undefined ? { date_of_birth: parsedDob } : {}),
                 },
                 select: {
                     id: true,
@@ -355,6 +374,9 @@ router.put('/profile', authMiddleware, async (req, res) => {
                     phone: true,
                     lineId: true,
                     age: true,
+                    title: true,
+                    id_card_or_passport: true,
+                    date_of_birth: true,
                     roleId: true,
                     role: { select: { id: true, name: true } },
                     createdAt: true,

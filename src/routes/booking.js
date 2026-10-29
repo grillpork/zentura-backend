@@ -687,12 +687,12 @@ BookingRouter.get("/:code", authMiddleware, async (req, res) => {
 });
 
 // -------------------------------------------------------------
-// PATCH /:id/status -> แอดมินปรับสถานะการจอง (CONFIRMED, CANCELLED ฯลฯ)
+// PATCH /:id/status -> แอดมินปรับสถานะการจอง (CONFIRMED, CANCELLED, REFUND_PENDING, REFUNDED)
 // -------------------------------------------------------------
 BookingRouter.patch("/:id/status", ...backofficeOnly, async (req, res) => {
     try {
         const id = parseInt(req.params.id);
-        const { status } = req.body;
+        const { status, refund_reason, refund_amount, refund_slip_url } = req.body;
 
         if (isNaN(id)) {
             return res.status(400).json({ message: "รหัส ID ไม่ถูกต้อง" });
@@ -700,26 +700,81 @@ BookingRouter.patch("/:id/status", ...backofficeOnly, async (req, res) => {
         if (!status) {
             return res.status(400).json({ message: "กรุณาระบุสถานะที่ต้องการเปลี่ยน" });
         }
-        if (!["CANCELLED", "PENDING_PAYMENT", "CONFIRMED"].includes(status)) return res.status(400).json({ message: "สถานะไม่ถูกต้อง" });
-        const booking = await prisma.booking.findUnique({ where: { id }, select: { status: true, total_price: true, payments: { where: { status: "APPROVED", payment_method: { in: ["STRIPE_LIVE_CARD", "BANK_TRANSFER_VERIFIED"] } }, select: { amount: true } } } });
+        const ALLOWED_STATUSES = ["CANCELLED", "PENDING_PAYMENT", "CONFIRMED", "REFUND_PENDING", "REFUNDED"];
+        if (!ALLOWED_STATUSES.includes(status)) return res.status(400).json({ message: "สถานะไม่ถูกต้อง" });
+
+        const booking = await prisma.booking.findUnique({
+            where: { id },
+            select: {
+                id: true,
+                status: true,
+                total_price: true,
+                refund_amount: true,
+                payments: {
+                    where: { status: "APPROVED" },
+                    select: { id: true, amount: true, payment_method: true }
+                }
+            }
+        });
         if (!booking) return res.status(404).json({ message: "ไม่พบรายการจอง" });
-        if (booking.status === "CANCELLED" && status !== "CANCELLED") return res.status(400).json({ message: "การจองที่ยกเลิกแล้วไม่สามารถนำกลับมาใช้ได้" });
-        if (status === "PENDING_PAYMENT" && booking.status !== "AWAITING_VERIFICATION") return res.status(400).json({ message: "เปลี่ยนเป็นรอชำระเงินได้เฉพาะข้อมูลเก่าที่รอตรวจสอบ" });
+        if (booking.status === "CANCELLED" && status !== "CANCELLED" && status !== "REFUND_PENDING" && status !== "REFUNDED") {
+            return res.status(400).json({ message: "การจองที่ยกเลิกแล้วไม่สามารถนำกลับมาใช้ได้" });
+        }
+        if (status === "PENDING_PAYMENT" && booking.status !== "AWAITING_VERIFICATION") {
+            return res.status(400).json({ message: "เปลี่ยนเป็นรอชำระเงินได้เฉพาะข้อมูลเก่าที่รอตรวจสอบ" });
+        }
         if (status === "CONFIRMED") {
             const approved = booking.payments.reduce((sum, payment) => sum + payment.amount, 0);
             if (approved + 0.01 < booking.total_price) return res.status(400).json({ message: "ยืนยันการจองไม่ได้จนกว่าจะมีการชำระเงินครบ" });
         }
 
         const updatedBooking = await prisma.$transaction(async (tx) => {
+            const updateData = { status };
+            if (status === "REFUND_PENDING") {
+                if (refund_reason) updateData.refund_reason = refund_reason;
+                if (refund_amount !== undefined) updateData.refund_amount = Number(refund_amount);
+                else if (booking.refund_amount == null) updateData.refund_amount = booking.total_price;
+            } else if (status === "REFUNDED") {
+                if (refund_reason) updateData.refund_reason = refund_reason;
+                if (refund_amount !== undefined) updateData.refund_amount = Number(refund_amount);
+                else if (booking.refund_amount == null) updateData.refund_amount = booking.total_price;
+                if (refund_slip_url) updateData.refund_slip_url = refund_slip_url;
+                updateData.refunded_at = new Date();
+                updateData.refunded_by = req.user?.id || null;
+            }
+
+            if (status === "REFUNDED") {
+                const finalRefund = updateData.refund_amount ?? booking.refund_amount ?? booking.total_price;
+                await tx.payment.create({
+                    data: {
+                        booking_id: id,
+                        amount: finalRefund,
+                        payment_method: "REFUND_TRANSFER",
+                        status: "REFUNDED",
+                        slip_url: updateData.refund_slip_url || null,
+                        paid_at: new Date(),
+                        verified_by: req.user?.id || null,
+                        verified_at: new Date(),
+                        reject_reason: updateData.refund_reason || "คืนเงินเนื่องจากทริปมีปัญหา"
+                    }
+                });
+            }
+
             const b = await tx.booking.update({
                 where: { id },
-                data: { status }
+                data: updateData,
+                include: {
+                    package: true,
+                    travelers: true,
+                    booking_addons: true,
+                    payments: { orderBy: { createdAt: "desc" } }
+                }
             });
 
             if (status === "CONFIRMED") {
                 const approvedPayment = await tx.payment.findFirst({ where: { booking_id: id, status: "APPROVED" }, select: { id: true } });
                 if (approvedPayment) await awardBookingPoints(tx, id);
-            } else if (status === "CANCELLED") {
+            } else if (status === "CANCELLED" || status === "REFUND_PENDING" || status === "REFUNDED") {
                 await deductBookingPointsOnCancel(tx, id);
                 await markInsuranceCancelled(tx, id);
             }
@@ -736,6 +791,86 @@ BookingRouter.patch("/:id/status", ...backofficeOnly, async (req, res) => {
     } catch (error) {
         console.error("UPDATE BOOKING STATUS ERROR:", error);
         return res.status(500).json({ message: "เกิดข้อผิดพลาดในการอัปเดตสถานะ", error: error.message });
+    }
+});
+
+// -------------------------------------------------------------
+// POST /:id/refund -> แอดมินสร้างคำขอคืนเงิน หรือ บันทึกการคืนเงินสำเร็จ
+// -------------------------------------------------------------
+BookingRouter.post("/:id/refund", ...backofficeOnly, async (req, res) => {
+    try {
+        const id = parseInt(req.params.id);
+        const { refund_reason, refund_amount, refund_slip_url, mark_as_completed } = req.body;
+
+        if (isNaN(id)) return res.status(400).json({ message: "รหัส ID ไม่ถูกต้อง" });
+
+        const booking = await prisma.booking.findUnique({
+            where: { id },
+            include: {
+                payments: { where: { status: "APPROVED" } }
+            }
+        });
+        if (!booking) return res.status(404).json({ message: "ไม่พบรายการจอง" });
+
+        const targetStatus = mark_as_completed ? "REFUNDED" : "REFUND_PENDING";
+        const finalRefundAmount = refund_amount !== undefined && Number(refund_amount) >= 0
+            ? Number(refund_amount)
+            : (booking.refund_amount || booking.total_price);
+
+        const updated = await prisma.$transaction(async (tx) => {
+            const updateData = {
+                status: targetStatus,
+                refund_reason: refund_reason || booking.refund_reason || "สถานที่ท่องเที่ยวหรือการเดินทางไม่พร้อมให้บริการ",
+                refund_amount: finalRefundAmount,
+            };
+
+            if (targetStatus === "REFUNDED") {
+                updateData.refunded_at = new Date();
+                updateData.refunded_by = req.user?.id || null;
+                if (refund_slip_url) updateData.refund_slip_url = refund_slip_url;
+
+                // Create financial transaction record as evidence of the refund
+                await tx.payment.create({
+                    data: {
+                        booking_id: id,
+                        amount: finalRefundAmount,
+                        payment_method: "REFUND_TRANSFER",
+                        status: "REFUNDED",
+                        slip_url: refund_slip_url || null,
+                        paid_at: new Date(),
+                        verified_by: req.user?.id || null,
+                        verified_at: new Date(),
+                        reject_reason: updateData.refund_reason
+                    }
+                });
+            }
+
+            const b = await tx.booking.update({
+                where: { id },
+                data: updateData,
+                include: {
+                    package: true,
+                    travelers: true,
+                    booking_addons: true,
+                    payments: { orderBy: { createdAt: "desc" } }
+                }
+            });
+
+            await deductBookingPointsOnCancel(tx, id);
+            await markInsuranceCancelled(tx, id);
+            await tx.bookingSeat.deleteMany({ where: { booking_id: id } });
+
+            return b;
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: targetStatus === "REFUNDED" ? "บันทึกการคืนเงินเรียบร้อยแล้ว" : "สร้างรายการขอคืนเงินเรียบร้อยแล้ว",
+            data: updated
+        });
+    } catch (error) {
+        console.error("ADMIN REFUND BOOKING ERROR:", error);
+        return res.status(500).json({ message: "เกิดข้อผิดพลาดในการดำเนินการคืนเงิน", error: error.message });
     }
 });
 

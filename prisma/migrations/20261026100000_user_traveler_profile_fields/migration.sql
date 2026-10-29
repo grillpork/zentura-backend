@@ -1,0 +1,3 @@
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "title" TEXT,
+ADD COLUMN IF NOT EXISTS "id_card_or_passport" TEXT,
+ADD COLUMN IF NOT EXISTS "date_of_birth" DATE;

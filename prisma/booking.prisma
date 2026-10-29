@@ -23,6 +23,11 @@ model Booking {
   discount_code     String?
   discount_amount   Float              @default(0)
   points_earned     Int                @default(0)
+  refund_reason     String?
+  refund_amount     Float?
+  refunded_at       DateTime?
+  refund_slip_url   String?
+  refunded_by       Int?
   booking_addons    BookingAddon[]
   bookingCollaps    BookingCollaps[]
   travelers         BookingTraveler[]
