@@ -65,6 +65,22 @@ test("traveler target compares people in confirmed reservations", () => {
   assert.equal(summarizePackage({ minimum_travelers: 2, bookings }).travelerGap, 1);
 });
 
+test("confirmed booking leaves no unconfirmed count and contributes its booked value", () => {
+  const summary = summarizePackage({ minimum_travelers: 15,
+    costItems: [{ pricing_mode: "FIXED", amount_satang: 3600000, deposit_satang: 950000,
+      paid_deposit_satang: 0, paid_balance_satang: 0 }],
+    bookings: [{ status: "CONFIRMED", adult_count: 1, child_count: 0, total_price: 1350,
+      addon_total: 0, insurance_total_satang: 0,
+      payments: [{ status: "APPROVED", amount: 1350, payment_method: "STRIPE_TEST_CARD" }] }]
+  });
+  assert.equal(summary.unconfirmedBookingCount, 0);
+  assert.equal(summary.unconfirmedTravelers, 0);
+  assert.equal(summary.confirmedBookingCount, 1);
+  assert.equal(summary.confirmedBookingTotalSatang, 135000);
+  assert.equal(summary.confirmedBookingTotalSatang - summary.totalDepositSatang, -815000);
+  assert.equal(summary.receivedSatang, 0);
+});
+
 test("rejects excess people, unselected sources, shop stops and overpayment", async () => {
   await assert.rejects(resolvePackageCosts(tx, parsePackageCosts({ minimum_travelers: 4, cost_items: [] }), selected), /3 ที่นั่ง/);
   await assert.rejects(resolvePackageCosts(tx, parsePackageCosts({ cost_items: [{ partner_id: 3, amount_satang: 1000 }] }), { ...selected, partnerIds: [] }), /อยู่ในแพ็กเกจ/);
